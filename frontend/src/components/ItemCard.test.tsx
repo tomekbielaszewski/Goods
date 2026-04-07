@@ -96,14 +96,14 @@ describe('ItemCard — repository mode', () => {
 describe('ItemCard — browse mode', () => {
   it('renders item name', () => {
     render(
-      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     expect(screen.getByText('Whole Milk')).toBeInTheDocument()
   })
 
   it('renders unchecked checkbox when state is active', () => {
     render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     const checkbox = screen.getByRole('button', { name: 'Mark bought' })
     expect(checkbox).toBeInTheDocument()
@@ -112,7 +112,7 @@ describe('ItemCard — browse mode', () => {
 
   it('renders checked checkbox when state is bought', () => {
     render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     const checkbox = screen.getByRole('button', { name: 'Mark active' })
     expect(checkbox).toHaveClass('bg-blue-600')
@@ -120,7 +120,7 @@ describe('ItemCard — browse mode', () => {
 
   it('renders crossed-out name when state is bought', () => {
     render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     const nameEl = screen.getByText('Whole Milk')
     expect(nameEl).toHaveClass('line-through')
@@ -128,7 +128,7 @@ describe('ItemCard — browse mode', () => {
 
   it('name is not crossed out when state is active', () => {
     render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     const nameEl = screen.getByText('Whole Milk')
     expect(nameEl).not.toHaveClass('line-through')
@@ -138,7 +138,7 @@ describe('ItemCard — browse mode', () => {
     const user = userEvent.setup()
     const onToggle = vi.fn()
     render(
-      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={onToggle} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={onToggle} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     await user.click(screen.getByRole('button', { name: 'Mark bought' }))
     expect(onToggle).toHaveBeenCalledOnce()
@@ -148,7 +148,7 @@ describe('ItemCard — browse mode', () => {
     const user = userEvent.setup()
     const onRemove = vi.fn()
     render(
-      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={() => {}} onRemove={onRemove} />
+      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={() => {}} onRemove={onRemove} onQuantityChange={() => {}} />
     )
     await user.click(screen.getByRole('button', { name: 'Remove from list' }))
     expect(onRemove).toHaveBeenCalledOnce()
@@ -164,7 +164,7 @@ describe('ItemCard — browse mode', () => {
     const listItem = makeListItem({ item, skippedShopIds: ['shop-1'] })
 
     const { container } = render(
-      <ItemCard mode="browse" listItem={listItem} shops={shops} onToggle={() => {}} onRemove={() => {}} />
+      <ItemCard mode="browse" listItem={listItem} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
 
     // shop-1 is skipped: should have opacity 0.4 and no background color
