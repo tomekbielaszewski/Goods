@@ -1,0 +1,13 @@
+.idea
+
+.claude/*.local.json
+
+frontend/dist
+frontend/node_modules
+
+backend/frontend/dist
+backend/.claude/agent-memory
+
+*.db
+*.db-shm
+*.db-wal
