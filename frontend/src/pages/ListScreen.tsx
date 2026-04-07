@@ -68,6 +68,11 @@ const ListScreen: FC = () => {
     reload()
   }
 
+  const updateQuantity = async (li: ListItemWithItem, qty: number | undefined, unit: string | undefined) => {
+    await upsertListItem({ ...li, quantity: qty, unit, updatedAt: new Date().toISOString(), version: li.version + 1 })
+    reload()
+  }
+
   const skipAtShop = async (li: ListItemWithItem) => {
     if (!shoppingModeShopId) return
     await skipShopForListItem(li.id, shoppingModeShopId)
@@ -196,6 +201,7 @@ const ListScreen: FC = () => {
                 shops={shops}
                 onToggle={() => void toggleItem(li)}
                 onRemove={() => void removeItem(li)}
+                onQuantityChange={(qty, unit) => void updateQuantity(li, qty, unit)}
                 onClick={() => navigate(`/item/${li.itemId}`)}
               />
             ))}
@@ -210,6 +216,7 @@ const ListScreen: FC = () => {
                     shops={shops}
                     onToggle={() => void toggleItem(li)}
                     onRemove={() => void removeItem(li)}
+                    onQuantityChange={(qty, unit) => void updateQuantity(li, qty, unit)}
                     onClick={() => navigate(`/item/${li.itemId}`)}
                   />
                 ))}

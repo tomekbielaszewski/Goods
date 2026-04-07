@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,6 +14,7 @@ func Bootstrap(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp, err := loadAll(db)
 		if err != nil {
+			log.Printf("ERROR bootstrap: %v", err)
 			jsonError(w, "failed to load data", http.StatusInternalServerError)
 			return
 		}

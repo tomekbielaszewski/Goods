@@ -46,6 +46,13 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
         type="text"
         value={query}
         onChange={e => setQuery(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && query.trim() && !exactMatch) {
+            onCreateNew(query.trim())
+            setQuery('')
+            setOpen(false)
+          }
+        }}
         placeholder={placeholder}
         className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
       />
