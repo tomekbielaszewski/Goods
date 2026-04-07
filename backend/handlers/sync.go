@@ -1,0 +1,342 @@
+package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"grocery/models"
+	gsync "grocery/sync"
+)
+
+func Sync(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req models.SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		serverTime := time.Now().UTC()
+		resp := models.SyncResponse{
+			ServerTime: serverTime,
+			Applied:    []string{},
+			Conflicts:  []models.Conflict{},
+		}
+
+		if err := applyChanges(db, req, &resp); err != nil {
+			jsonError(w, "sync failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		serverChanges, err := loadChangesSince(db, req.LastSyncedAt)
+		if err != nil {
+			jsonError(w, "failed to load server changes", http.StatusInternalServerError)
+			return
+		}
+		resp.ServerChanges = *serverChanges
+
+		jsonOK(w, resp)
+	}
+}
+
+func applyChanges(db *sql.DB, req models.SyncRequest, resp *models.SyncResponse) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, s := range req.Changes.Shops {
+		applied, conflict, err := upsertShop(tx, s, req.LastSyncedAt)
+		if err != nil {
+			return err
+		}
+		if conflict != nil {
+			resp.Conflicts = append(resp.Conflicts, *conflict)
+		} else if applied {
+			resp.Applied = append(resp.Applied, s.ID)
+		}
+	}
+
+	for _, item := range req.Changes.Items {
+		applied, conflict, err := upsertItem(tx, item, req.LastSyncedAt)
+		if err != nil {
+			return err
+		}
+		if conflict != nil {
+			resp.Conflicts = append(resp.Conflicts, *conflict)
+		} else if applied {
+			resp.Applied = append(resp.Applied, item.ID)
+		}
+	}
+
+	for _, t := range req.Changes.Tags {
+		if _, err := tx.Exec(
+			`INSERT INTO tags(id, name) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name`,
+			t.ID, t.Name,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, x := range req.Changes.ItemShops {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO item_shops(item_id, shop_id) VALUES(?,?)`,
+			x.ItemID, x.ShopID,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, x := range req.Changes.ItemTags {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO item_tags(item_id, tag_id) VALUES(?,?)`,
+			x.ItemID, x.TagID,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, l := range req.Changes.Lists {
+		applied, conflict, err := upsertList(tx, l, req.LastSyncedAt)
+		if err != nil {
+			return err
+		}
+		if conflict != nil {
+			resp.Conflicts = append(resp.Conflicts, *conflict)
+		} else if applied {
+			resp.Applied = append(resp.Applied, l.ID)
+		}
+	}
+
+	for _, li := range req.Changes.ListItems {
+		applied, conflict, err := upsertListItem(tx, li, req.LastSyncedAt)
+		if err != nil {
+			return err
+		}
+		if conflict != nil {
+			resp.Conflicts = append(resp.Conflicts, *conflict)
+		} else if applied {
+			resp.Applied = append(resp.Applied, li.ID)
+		}
+	}
+
+	for _, x := range req.Changes.ListItemSkippedShops {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO list_item_skipped_shops(list_item_id, shop_id, skipped_at) VALUES(?,?,?)`,
+			x.ListItemID, x.ShopID, x.SkippedAt,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, ss := range req.Changes.ShoppingSessions {
+		if _, err := tx.Exec(
+			`INSERT INTO shopping_sessions(id, list_id, shop_id, started_at, ended_at, version)
+			 VALUES(?,?,?,?,?,?)
+			 ON CONFLICT(id) DO UPDATE SET ended_at=excluded.ended_at, version=excluded.version`,
+			ss.ID, ss.ListID, ss.ShopID, ss.StartedAt, ss.EndedAt, ss.Version,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, si := range req.Changes.SessionItems {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO session_items(id, session_id, item_id, action, quantity, unit, at)
+			 VALUES(?,?,?,?,?,?,?)`,
+			si.ID, si.SessionID, si.ItemID, si.Action, si.Quantity, si.Unit, si.At,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func upsertShop(tx *sql.Tx, s models.Shop, lastSync time.Time) (applied bool, conflict *models.Conflict, err error) {
+	var dbVersion int
+	var dbUpdatedAt time.Time
+	scanErr := tx.QueryRow(`SELECT version, updated_at FROM shops WHERE id=?`, s.ID).
+		Scan(&dbVersion, &dbUpdatedAt)
+
+	if scanErr == sql.ErrNoRows {
+		_, err = tx.Exec(
+			`INSERT INTO shops(id, name, color, version, updated_at, deleted_at) VALUES(?,?,?,?,?,?)`,
+			s.ID, s.Name, s.Color, s.Version, s.UpdatedAt, s.DeletedAt,
+		)
+		return err == nil, nil, err
+	}
+	if scanErr != nil {
+		return false, nil, scanErr
+	}
+
+	if gsync.IsConflict(s.UpdatedAt, dbUpdatedAt, lastSync) {
+		dbShop := models.Shop{ID: s.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		c, e := gsync.MakeConflict("shop", s.ID, s, dbShop)
+		return false, &c, e
+	}
+
+	if s.UpdatedAt.After(dbUpdatedAt) {
+		_, err = tx.Exec(
+			`UPDATE shops SET name=?, color=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+			s.Name, s.Color, s.Version, s.UpdatedAt, s.DeletedAt, s.ID,
+		)
+		return err == nil, nil, err
+	}
+	return false, nil, nil
+}
+
+func upsertItem(tx *sql.Tx, item models.Item, lastSync time.Time) (applied bool, conflict *models.Conflict, err error) {
+	var dbVersion int
+	var dbUpdatedAt time.Time
+	scanErr := tx.QueryRow(`SELECT version, updated_at FROM items WHERE id=?`, item.ID).
+		Scan(&dbVersion, &dbUpdatedAt)
+
+	if scanErr == sql.ErrNoRows {
+		_, err = tx.Exec(
+			`INSERT INTO items(id, name, unit, description, notes, version, created_at, updated_at, deleted_at)
+			 VALUES(?,?,?,?,?,?,?,?,?)`,
+			item.ID, item.Name, item.Unit, item.Description, item.Notes,
+			item.Version, item.CreatedAt, item.UpdatedAt, item.DeletedAt,
+		)
+		return err == nil, nil, err
+	}
+	if scanErr != nil {
+		return false, nil, scanErr
+	}
+
+	if gsync.IsConflict(item.UpdatedAt, dbUpdatedAt, lastSync) {
+		dbItem := models.Item{ID: item.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		c, e := gsync.MakeConflict("item", item.ID, item, dbItem)
+		return false, &c, e
+	}
+
+	if item.UpdatedAt.After(dbUpdatedAt) {
+		_, err = tx.Exec(
+			`UPDATE items SET name=?, unit=?, description=?, notes=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+			item.Name, item.Unit, item.Description, item.Notes,
+			item.Version, item.UpdatedAt, item.DeletedAt, item.ID,
+		)
+		return err == nil, nil, err
+	}
+	return false, nil, nil
+}
+
+func upsertList(tx *sql.Tx, l models.List, lastSync time.Time) (applied bool, conflict *models.Conflict, err error) {
+	var dbVersion int
+	var dbUpdatedAt time.Time
+	scanErr := tx.QueryRow(`SELECT version, updated_at FROM lists WHERE id=?`, l.ID).
+		Scan(&dbVersion, &dbUpdatedAt)
+
+	if scanErr == sql.ErrNoRows {
+		_, err = tx.Exec(
+			`INSERT INTO lists(id, name, version, created_at, updated_at, deleted_at) VALUES(?,?,?,?,?,?)`,
+			l.ID, l.Name, l.Version, l.CreatedAt, l.UpdatedAt, l.DeletedAt,
+		)
+		return err == nil, nil, err
+	}
+	if scanErr != nil {
+		return false, nil, scanErr
+	}
+
+	if gsync.IsConflict(l.UpdatedAt, dbUpdatedAt, lastSync) {
+		dbList := models.List{ID: l.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		c, e := gsync.MakeConflict("list", l.ID, l, dbList)
+		return false, &c, e
+	}
+
+	if l.UpdatedAt.After(dbUpdatedAt) {
+		_, err = tx.Exec(
+			`UPDATE lists SET name=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+			l.Name, l.Version, l.UpdatedAt, l.DeletedAt, l.ID,
+		)
+		return err == nil, nil, err
+	}
+	return false, nil, nil
+}
+
+func upsertListItem(tx *sql.Tx, li models.ListItem, lastSync time.Time) (applied bool, conflict *models.Conflict, err error) {
+	var dbVersion int
+	var dbUpdatedAt time.Time
+	scanErr := tx.QueryRow(`SELECT version, updated_at FROM list_items WHERE id=?`, li.ID).
+		Scan(&dbVersion, &dbUpdatedAt)
+
+	if scanErr == sql.ErrNoRows {
+		_, err = tx.Exec(
+			`INSERT INTO list_items(id, list_id, item_id, state, quantity, unit, notes, version, added_at, updated_at)
+			 VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			li.ID, li.ListID, li.ItemID, li.State, li.Quantity, li.Unit, li.Notes,
+			li.Version, li.AddedAt, li.UpdatedAt,
+		)
+		return err == nil, nil, err
+	}
+	if scanErr != nil {
+		return false, nil, scanErr
+	}
+
+	if gsync.IsConflict(li.UpdatedAt, dbUpdatedAt, lastSync) {
+		dbLI := models.ListItem{ID: li.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		c, e := gsync.MakeConflict("listItem", li.ID, li, dbLI)
+		return false, &c, e
+	}
+
+	if li.UpdatedAt.After(dbUpdatedAt) {
+		_, err = tx.Exec(
+			`UPDATE list_items SET state=?, quantity=?, unit=?, notes=?, version=?, updated_at=? WHERE id=?`,
+			li.State, li.Quantity, li.Unit, li.Notes, li.Version, li.UpdatedAt, li.ID,
+		)
+		return err == nil, nil, err
+	}
+	return false, nil, nil
+}
+
+func loadChangesSince(db *sql.DB, since time.Time) (*models.SyncChanges, error) {
+	sinceStr := since.UTC().Format(time.RFC3339Nano)
+	changes := &models.SyncChanges{}
+	var err error
+
+	changes.Shops, err = queryShops(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	changes.Items, err = queryItems(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	changes.Lists, err = queryLists(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	changes.ListItems, err = queryListItems(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	changes.Tags, err = queryTags(db)
+	if err != nil {
+		return nil, err
+	}
+	changes.ItemShops, err = queryItemShops(db)
+	if err != nil {
+		return nil, err
+	}
+	changes.ItemTags, err = queryItemTags(db)
+	if err != nil {
+		return nil, err
+	}
+	changes.ListItemSkippedShops, err = queryListItemSkippedShops(db)
+	if err != nil {
+		return nil, err
+	}
+	changes.ShoppingSessions, err = queryShoppingSessions(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	changes.SessionItems, err = querySessionItems(db, sinceStr)
+	if err != nil {
+		return nil, err
+	}
+	return changes, nil
+}
