@@ -185,21 +185,29 @@ interface GroceryFixtures {
   globalTeardown: './global-teardown.ts',
   use: {
     baseURL:    'http://localhost:8080',
+    headless:   true,          // explicit; also the default
     trace:      'on-first-retry',
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'api',     testDir: './api',  use: { browserName: 'chromium' } },
-    { name: 'chrome',  testDir: './ui',   use: { browserName: 'chromium' } },
-    { name: 'mobile',  testDir: './ui',   use: devices['Pixel 7'] },
+    { name: 'api',    testDir: './api', use: { browserName: 'chromium' } },
+    { name: 'chrome', testDir: './ui',  use: { browserName: 'chromium' } },
+    {
+      name: 'mobile',
+      testDir: './ui',
+      // Device emulation: viewport (412×915), touch events, mobile UA.
+      // No real device needed — runs fully headless.
+      use: devices['Pixel 7'],
+    },
   ],
   retries:  1,
   workers:  4,
 }
 ```
 
-Running on both desktop Chrome and a mobile viewport catches touch-specific logic
-(swipe gestures, bottom nav sizing).
+Both projects run headless. The `mobile` project is pure emulation — Playwright sets
+the viewport to 412×915, enables touch event APIs, and sends the Pixel 7 user-agent.
+No physical device or display server (Xvfb) required.
 
 ---
 
@@ -213,7 +221,10 @@ npx playwright test --config e2e/playwright.config.ts
 # API tests only (fast, no browser)
 npx playwright test --project=api
 
-# UI tests, headed (debug)
+# Mobile emulation only
+npx playwright test --project=mobile
+
+# Headed mode for local debugging (opens a real browser window)
 npx playwright test --project=chrome --headed
 
 # Generate trace viewer report on failure
