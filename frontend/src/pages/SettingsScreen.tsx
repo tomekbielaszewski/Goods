@@ -4,7 +4,7 @@ import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
 
 const PALETTE = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e',
+  '#ef4444', '#6e2600', '#eab308', '#22c55e',
   '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899',
   '#f43f5e', '#06b6d4', '#84cc16', '#a78bfa',
 ]
