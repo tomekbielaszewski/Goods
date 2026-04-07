@@ -7,13 +7,15 @@ const ALL_ARRAY_KEYS = [
   'shoppingSessions', 'sessionItems',
 ]
 
-// Run serially so each scenario builds on a controlled state
+// Run serially so each scenario builds predictably on the prior one.
+// Note: other parallel workers (sync.spec.ts) share the same DB, so we
+// validate presence/shape by UUID rather than asserting exact array lengths.
 test.describe.serial('GET /api/bootstrap', () => {
   test.beforeAll(async () => {
     await resetViaApi()
   })
 
-  test('1 – empty database: HTTP 200, all 10 array keys present and empty', async ({ request }) => {
+  test('1 – response has all 10 array keys and a serverTime field', async ({ request }) => {
     const res = await request.get('/api/bootstrap')
 
     expect(res.status()).toBe(200)
@@ -21,11 +23,12 @@ test.describe.serial('GET /api/bootstrap', () => {
 
     for (const key of ALL_ARRAY_KEYS) {
       expect(Array.isArray(body[key]), `${key} should be an array`).toBe(true)
-      expect((body[key] as unknown[]).length, `${key} should be empty`).toBe(0)
     }
+    // serverTime is present and is a string
+    expect(typeof body['serverTime']).toBe('string')
   })
 
-  test('2 – after seeding one shop: shops array has length 1 with expected fields', async ({ request }) => {
+  test('2 – after seeding one shop: that shop appears with expected fields', async ({ request }) => {
     const shopId = globalThis.crypto.randomUUID()
     await seedViaApi({
       shops: [{
@@ -38,17 +41,14 @@ test.describe.serial('GET /api/bootstrap', () => {
     })
 
     const res = await request.get('/api/bootstrap')
-    const body = await res.json() as Record<string, unknown[]>
+    const body = await res.json() as { shops: Array<Record<string, unknown>> }
 
-    const shops = body['shops'] as Array<Record<string, unknown>>
-    expect(shops.length).toBe(1)
-
-    const shop = shops[0]!
-    expect(shop['id']).toBe(shopId)
-    expect(shop['name']).toBe('Test Market')
-    expect(shop['color']).toBe('#3b82f6')
-    expect(typeof shop['version']).toBe('number')
-    expect(typeof shop['updatedAt']).toBe('string')
+    const shop = body.shops.find(s => s['id'] === shopId)
+    expect(shop).toBeDefined()
+    expect(shop!['name']).toBe('Test Market')
+    expect(shop!['color']).toBe('#3b82f6')
+    expect(typeof shop!['version']).toBe('number')
+    expect(typeof shop!['updatedAt']).toBe('string')
   })
 
   test('3 – serverTime: valid ISO-8601 date close to Date.now()', async ({ request }) => {

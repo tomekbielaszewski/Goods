@@ -6,7 +6,7 @@ import type { BootstrapResponse, SyncResponse } from '../types'
 
 // Mock fetch globally
 const fetchMock = vi.fn()
-global.fetch = fetchMock
+;(globalThis as Record<string, unknown>).fetch = fetchMock
 
 // Reset store between tests
 const resetStore = () =>

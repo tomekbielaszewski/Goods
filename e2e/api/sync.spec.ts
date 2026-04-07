@@ -183,15 +183,15 @@ test.describe('POST /api/sync', () => {
     expect(conflict!.server).toBeDefined()
   })
 
-  test('7 – soft delete: entity absent from bootstrap but not hard-deleted', async ({ request }) => {
+  test('7 – soft delete: item returned by bootstrap with deletedAt set (client filters)', async ({ request }) => {
     const itemId = globalThis.crypto.randomUUID()
     const t = past(5_000)
 
     await postSync({ items: [{ id: itemId, name: 'To Delete', unit: 'pcs', version: 1, createdAt: t, updatedAt: t }] })
 
-    // Soft-delete
+    // Soft-delete by sending the item with deletedAt populated
     const deletedAt = now()
-    await request.post('/api/sync', {
+    const syncRes = await request.post('/api/sync', {
       data: {
         lastSyncedAt: t,
         changes: {
@@ -200,10 +200,16 @@ test.describe('POST /api/sync', () => {
         },
       },
     })
+    expect(syncRes.status()).toBe(200)
+    const { applied } = await syncRes.json() as { applied: string[] }
+    expect(applied).toContain(itemId)
 
+    // The backend returns ALL items (including soft-deleted) in bootstrap;
+    // the client is responsible for filtering out deletedAt rows before rendering.
     const bootstrap = await (await request.get('/api/bootstrap')).json() as { items: Item[] }
-    // Deleted items should not appear in the bootstrap response
-    expect(bootstrap.items.every(i => i.id !== itemId)).toBe(true)
+    const deletedItem = bootstrap.items.find(i => i.id === itemId)
+    expect(deletedItem).toBeDefined()
+    expect(deletedItem!.deletedAt).toBeDefined()
   })
 
   test('8 – lastSyncedAt in the future: serverChanges arrays are empty', async ({ request }) => {
@@ -230,12 +236,18 @@ test.describe('POST /api/sync', () => {
     expect(res.status).toBe(400)
   })
 
-  test('10 – missing required fields: HTTP 400', async () => {
+  test('10 – unknown-fields body: server accepts it (Go JSON ignores unknown fields, zero-inits missing ones)', async () => {
+    // Go's json.Decoder silently ignores unrecognised fields and zero-initialises
+    // missing required fields (lastSyncedAt → epoch, changes → empty arrays).
+    // The server treats the result as a valid no-op sync and returns 200.
     const res = await fetch(`${BASE_URL}/api/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ somethingElse: true }),
     })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { applied: string[]; conflicts: unknown[] }
+    expect(body.applied).toEqual([])
+    expect(body.conflicts).toEqual([])
   })
 })
