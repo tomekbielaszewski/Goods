@@ -1,4 +1,4 @@
-import { type FC, useRef, useState } from 'react'
+import { type FC, useRef, useState, useEffect } from 'react'
 import type { ItemWithDetails, ListItemWithItem } from '../types'
 import ShopDot from './ShopDot'
 import TagBadge from './TagBadge'
@@ -17,6 +17,7 @@ interface BrowseCardProps {
   shops: { id: string; name: string; color: string }[]
   onToggle: () => void
   onRemove: () => void
+  onQuantityChange: (qty: number | undefined, unit: string | undefined) => void
   onClick?: () => void
 }
 
@@ -67,12 +68,30 @@ const RepositoryCard: FC<RepositoryCardProps> = ({ item, onClick }) => (
 )
 
 // ── Browse ───────────────────────────────────────────────────────────────────
-const BrowseCard: FC<BrowseCardProps> = ({ listItem, shops, onToggle, onRemove, onClick }) => {
+const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuantityChange, onClick }) => {
   const bought = listItem.state === 'bought'
-  const shopMap = new Map(shops.map(s => [s.id, s]))
+  const defaultUnit = listItem.unit ?? listItem.item.unit ?? ''
+  const defaultQty  = listItem.quantity != null ? String(listItem.quantity) : ''
+
+  const [qty, setQty]   = useState(defaultQty)
+  const [unit, setUnit] = useState(defaultUnit)
+
+  // Keep local state in sync when the listItem changes from the outside
+  useEffect(() => { setQty(listItem.quantity != null ? String(listItem.quantity) : '') }, [listItem.quantity])
+  useEffect(() => { setUnit(listItem.unit ?? listItem.item.unit ?? '') }, [listItem.unit, listItem.item.unit])
+
+  const commitQty = () => {
+    const parsed = qty.trim() === '' ? undefined : Number(qty)
+    const u      = unit.trim() || undefined
+    onQuantityChange(parsed, u)
+  }
+
+  const hasTags  = listItem.item.tags.length > 0
+  const hasShops = listItem.item.shops.length > 0
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'}`}>
+    <div className={`flex items-center gap-2 px-3 py-2 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'}`}>
+      {/* Checkbox */}
       <button
         onClick={onToggle}
         aria-label={bought ? 'Mark active' : 'Mark bought'}
@@ -81,31 +100,62 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, shops, onToggle, onRemove, 
         {bought && <svg viewBox="0 0 12 12" fill="white" className="w-full h-full p-0.5"><path d="M10 3L5 8.5 2 5.5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>}
       </button>
 
-      <div className="flex-1 min-w-0" onClick={onClick}>
-        <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium truncate ${bought ? 'line-through text-gray-500' : 'text-gray-100'}`}>
-            {listItem.item.name}
-          </span>
-          {(listItem.quantity ?? listItem.item.unit) && (
-            <span className="text-xs text-gray-500">
-              {listItem.quantity}{listItem.unit ?? listItem.item.unit}
-            </span>
-          )}
-        </div>
-        {/* Shop dots — skipped ones are crossed */}
-        <div className="flex gap-1 mt-1">
-          {listItem.item.shops.map(s => (
-            <ShopDot
-              key={s.id}
-              color={s.color}
-              skipped={listItem.skippedShopIds.includes(s.id)}
-              title={s.name}
-            />
-          ))}
-          {listItem.item.tags.map(t => <TagBadge key={t.id} name={t.name} />)}
-        </div>
+      {/* Name */}
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
+        <span className={`text-sm font-medium truncate block ${bought ? 'line-through text-gray-500' : 'text-gray-100'}`}>
+          {listItem.item.name}
+        </span>
       </div>
 
+      {/* Qty + unit inputs (browse mode only, not bought) */}
+      {!bought && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <input
+            type="number"
+            value={qty}
+            min={0}
+            onChange={e => setQty(e.target.value)}
+            onBlur={commitQty}
+            onKeyDown={e => { if (e.key === 'Enter') { commitQty(); (e.target as HTMLInputElement).blur() } }}
+            placeholder="qty"
+            className="w-12 bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500 text-right"
+          />
+          <input
+            type="text"
+            value={unit}
+            onChange={e => setUnit(e.target.value)}
+            onBlur={commitQty}
+            onKeyDown={e => { if (e.key === 'Enter') { commitQty(); (e.target as HTMLInputElement).blur() } }}
+            placeholder="unit"
+            className="w-10 bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      )}
+
+      {/* Tags (top) + shop dots (bottom), right-aligned column */}
+      {(hasTags || hasShops) && (
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          {hasTags && (
+            <div className="flex gap-1 flex-wrap justify-end">
+              {listItem.item.tags.map(t => <TagBadge key={t.id} name={t.name} />)}
+            </div>
+          )}
+          {hasShops && (
+            <div className="flex gap-1">
+              {listItem.item.shops.map(s => (
+                <ShopDot
+                  key={s.id}
+                  color={s.color}
+                  skipped={listItem.skippedShopIds.includes(s.id)}
+                  title={s.name}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Remove */}
       <button
         onClick={onRemove}
         aria-label="Remove from list"
@@ -113,9 +163,6 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, shops, onToggle, onRemove, 
       >
         ×
       </button>
-
-      {/* Suppress unused warning */}
-      {shopMap.size === 0 && null}
     </div>
   )
 }

@@ -74,7 +74,7 @@ const SettingsScreen: FC = () => {
             placeholder="Shop name…"
             className="w-full bg-surface border border-border rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
           />
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {PALETTE.map(c => (
               <button
                 key={c}
@@ -84,6 +84,20 @@ const SettingsScreen: FC = () => {
                 aria-label={`Color ${c}`}
               />
             ))}
+            {/* Custom color picker */}
+            <label
+              className={`relative w-5 h-5 rounded-full overflow-hidden cursor-pointer transition-transform ${!PALETTE.includes(color) ? 'scale-125 ring-2 ring-white/50' : ''}`}
+              style={{ backgroundColor: !PALETTE.includes(color) ? color : '#ffffff22' }}
+              title="Custom color"
+            >
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] text-white/70 select-none">+</span>
+              <input
+                type="color"
+                value={color}
+                onChange={e => setColor(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </label>
           </div>
           <div className="flex gap-2">
             <button

@@ -144,7 +144,7 @@ const ItemDetailScreen: FC = () => {
 
         {/* Unit */}
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">Unit</label>
+          <label className="text-xs text-gray-500 mb-1 block">Unit {isNew && <span className="text-red-400">*</span>}</label>
           <div className="flex gap-1.5 flex-wrap mb-1.5">
             {COMMON_UNITS.map(u => (
               <button
@@ -289,7 +289,7 @@ const ItemDetailScreen: FC = () => {
       <div className="px-3 py-3 border-t border-border">
         <button
           onClick={() => void save()}
-          disabled={!name.trim()}
+          disabled={!name.trim() || (isNew && !unit.trim())}
           className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
         >
           {isNew ? 'Add item' : 'Save changes'}

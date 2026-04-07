@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -26,12 +27,14 @@ func Sync(db *sql.DB) http.HandlerFunc {
 		}
 
 		if err := applyChanges(db, req, &resp); err != nil {
+			log.Printf("ERROR sync applyChanges: %v", err)
 			jsonError(w, "sync failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		serverChanges, err := loadChangesSince(db, req.LastSyncedAt)
 		if err != nil {
+			log.Printf("ERROR sync loadChangesSince: %v", err)
 			jsonError(w, "failed to load server changes", http.StatusInternalServerError)
 			return
 		}
