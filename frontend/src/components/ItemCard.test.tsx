@@ -175,7 +175,7 @@ describe('ItemCard — browse mode', () => {
     // shop-2 is not skipped: should have background color and full opacity
     const normalDot = container.querySelector('[title="Aldi"]') as HTMLElement
     expect(normalDot.style.opacity).toBe('1')
-    expect(normalDot.style.backgroundColor).toBe('rgb(0, 255, 0)')
+    expect(normalDot.style.backgroundColor).toBe('#00ff00')
   })
 })
 

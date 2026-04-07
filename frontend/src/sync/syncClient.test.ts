@@ -225,9 +225,7 @@ describe('sync', () => {
     expect(remaining.map(r => r.id)).toContain('item-2')
   })
 
-  it('sync_queuesConflicts calls addConflicts with server conflicts', async () => {
-    const addConflictsSpy = vi.spyOn(useStore.getState(), 'addConflicts')
-
+  it('sync_queuesConflicts adds server conflicts to the store', async () => {
     const conflicts = [
       { entity: 'item', id: 'item-1', client: { name: 'Old' }, server: { name: 'New' } },
     ]
@@ -235,10 +233,9 @@ describe('sync', () => {
 
     await sync()
 
-    // Check that conflicts ended up in store
     expect(useStore.getState().conflicts).toHaveLength(1)
     expect(useStore.getState().conflicts[0]!.id).toBe('item-1')
-    addConflictsSpy.mockRestore()
+    expect(useStore.getState().conflicts[0]!.entity).toBe('item')
   })
 
   it('sync_queuesConflicts does not add conflicts when response has none', async () => {

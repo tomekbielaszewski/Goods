@@ -33,7 +33,7 @@ export class GroceryDB extends Dexie {
       listItems:              'id, listId, itemId, state, updatedAt',
       listItemSkippedShops:   '[listItemId+shopId], listItemId',
       shoppingSessions:       'id, listId, shopId, startedAt',
-      sessionItems:           'id, sessionId, itemId, at',
+      sessionItems:           'id, sessionId, itemId, action, at',
       pendingSyncIds:         'id, entity, changedAt',
     })
   }

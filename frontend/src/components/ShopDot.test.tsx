@@ -6,7 +6,7 @@ describe('ShopDot', () => {
   it('renders with correct background color when not skipped', () => {
     const { container } = render(<ShopDot color="#ff0000" />)
     const dot = container.firstChild as HTMLElement
-    expect(dot.style.backgroundColor).toBe('rgb(255, 0, 0)')
+    expect(dot.style.backgroundColor).toBe('#ff0000')
     // opacity is 1 (full) when not skipped
     expect(dot.style.opacity).toBe('1')
   })
