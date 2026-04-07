@@ -1,0 +1,6 @@
+services:
+  grocery:
+    volumes:
+      - /tmp/grocery-e2e:/data
+    ports:
+      - "8080:8080"
