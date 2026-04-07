@@ -1,6 +1,7 @@
 # Grocery
 
-Offline-first grocery management app. Works fully in the browser after the first load — no internet required while shopping. Syncs with a home server in the background when connectivity is available.
+Offline-first grocery management app. Works fully in the browser after the first load — no internet required while
+shopping. Syncs with a home server in the background when connectivity is available.
 
 **Stack:** Go + SQLite (backend) · React + Tailwind + Dexie (frontend) · Docker (deployment)
 
@@ -8,10 +9,10 @@ Offline-first grocery management app. Works fully in the browser after the first
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|------|---------|-------|
-| Go | ≥ 1.25 | `go version` |
-| Node.js | ≥ 22 | `node --version` |
+| Tool             | Version    | Notes               |
+|------------------|------------|---------------------|
+| Go               | ≥ 1.25     | `go version`        |
+| Node.js          | ≥ 22       | `node --version`    |
 | Docker + Compose | any recent | for deployment only |
 
 ---
@@ -75,12 +76,13 @@ go build -o grocery .
 
 Flags:
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--db` | `./grocery.db` | Path to SQLite database file |
-| `--port` | `8080` | HTTP listen port |
+| Flag     | Default        | Description                  |
+|----------|----------------|------------------------------|
+| `--db`   | `./grocery.db` | Path to SQLite database file |
+| `--port` | `8080`         | HTTP listen port             |
 
-The database file is created automatically on first run. Schema migrations are applied via `CREATE TABLE IF NOT EXISTS` on every start.
+The database file is created automatically on first run. Schema migrations are applied via `CREATE TABLE IF NOT EXISTS`
+on every start.
 
 ### 2. Frontend
 
@@ -94,7 +96,8 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies all `/api` requests to the Go backend, so both must be running simultaneously during development.
+Open [http://localhost:5173](http://localhost:5173). The Vite dev server proxies all `/api` requests to the Go backend,
+so both must be running simultaneously during development.
 
 ### 3. Typical dev workflow
 
@@ -129,9 +132,11 @@ go test ./sync/...
 go test -race ./...
 ```
 
-Tests use a real in-memory SQLite database (`:memory:`) — no mocks for the data layer. Each test gets a fresh DB instance.
+Tests use a real in-memory SQLite database (`:memory:`) — no mocks for the data layer. Each test gets a fresh DB
+instance.
 
 **Coverage:**
+
 - `sync/resolver_test.go` — unit tests for conflict detection logic
 - `handlers/bootstrap_test.go` — integration tests for `GET /api/bootstrap`
 - `handlers/sync_test.go` — integration tests for `POST /api/sync` (upsert, conflict, server changes)
@@ -151,9 +156,11 @@ npx vitest
 npm run test:coverage
 ```
 
-Tests use `happy-dom` as the browser environment and `fake-indexeddb` for IndexedDB — no real browser or network required.
+Tests use `happy-dom` as the browser environment and `fake-indexeddb` for IndexedDB — no real browser or network
+required.
 
 **Coverage:**
+
 - `store/useStore.test.ts` — Zustand store actions
 - `db/queries.test.ts` — Dexie integration tests (fake IndexedDB)
 - `sync/syncClient.test.ts` — sync logic (fetch mocked with `vi.fn()`)
@@ -178,7 +185,8 @@ cd backend && go build -o grocery .
 ./grocery --db ./grocery.db --port 8080
 ```
 
-The resulting binary is fully self-contained — it serves both the API and the frontend with no external dependencies at runtime.
+The resulting binary is fully self-contained — it serves both the API and the frontend with no external dependencies at
+runtime.
 
 ---
 
@@ -194,7 +202,8 @@ mkdir -p /srv/grocery
 docker compose up -d --build
 ```
 
-The SQLite database is stored at `/srv/grocery/grocery.db` on the host (bind-mounted into the container at `/data/grocery.db`). It survives container restarts and image rebuilds.
+The SQLite database is stored at `/srv/grocery/grocery.db` on the host (bind-mounted into the container at
+`/data/grocery.db`). It survives container restarts and image rebuilds.
 
 ### Update after code changes
 
@@ -225,11 +234,11 @@ docker compose logs -f grocery
 
 ## API reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/bootstrap` | Full data dump — all tables, used on first load |
-| `POST` | `/api/sync` | Bidirectional delta sync — send client changes, receive server changes |
-| `GET` | `/*` | Serves React SPA; unknown paths fall back to `index.html` |
+| Method | Path             | Description                                                            |
+|--------|------------------|------------------------------------------------------------------------|
+| `GET`  | `/api/bootstrap` | Full data dump — all tables, used on first load                        |
+| `POST` | `/api/sync`      | Bidirectional delta sync — send client changes, receive server changes |
+| `GET`  | `/*`             | Serves React SPA; unknown paths fall back to `index.html`              |
 
 ### Sync request body
 
@@ -256,20 +265,29 @@ docker compose logs -f grocery
 ```json
 {
   "serverTime": "2026-04-07T10:05:00Z",
-  "applied": ["id1", "id2"],
+  "applied": [
+    "id1",
+    "id2"
+  ],
   "conflicts": [],
-  "serverChanges": { ... }
+  "serverChanges": {
+    ...
+  }
 }
 ```
 
-Conflicts occur when the same entity was modified on both client and server since `lastSyncedAt`. The app surfaces a non-blocking notification and lets you resolve them in the Conflicts screen.
+Conflicts occur when the same entity was modified on both client and server since `lastSyncedAt`. The app surfaces a
+non-blocking notification and lets you resolve them in the Conflicts screen.
 
 ---
 
 ## Key design decisions
 
-- **Offline-first** — all reads/writes go to IndexedDB (Dexie) first; the server is never on the critical path for UI interactions.
+- **Offline-first** — all reads/writes go to IndexedDB (Dexie) first; the server is never on the critical path for UI
+  interactions.
 - **No auth** — single anonymous user; the app is intended to run on a private home server.
-- **Client-generated UUIDs** — items and lists get their IDs in the browser before ever reaching the server, enabling offline creation without conflicts.
+- **Client-generated UUIDs** — items and lists get their IDs in the browser before ever reaching the server, enabling
+  offline creation without conflicts.
 - **SQLite WAL mode** — single writer, fast reads, consistent backups.
-- **No PWA** — the app requires an initial online load but works fully offline afterwards; installability was intentionally deferred.
+- **No PWA** — the app requires an initial online load but works fully offline afterwards; installability was
+  intentionally deferred.
