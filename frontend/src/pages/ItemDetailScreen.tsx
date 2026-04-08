@@ -15,7 +15,7 @@ const ItemDetailScreen: FC = () => {
   const isNew = id === 'new'
 
   const [name, setName]             = useState(searchParams.get('name') ?? '')
-  const [unit, setUnit]             = useState('')
+  const [unit, setUnit]             = useState(isNew ? 'pcs' : '')
   const [description, setDescription] = useState('')
   const [notes, setNotes]           = useState('')
   const [selectedShops, setSelectedShops] = useState<string[]>([])
@@ -137,6 +137,7 @@ const ItemDetailScreen: FC = () => {
             autoFocus={isNew}
             value={name}
             onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && name.trim()) void save() }}
             placeholder="e.g. Whole milk"
             className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors"
           />

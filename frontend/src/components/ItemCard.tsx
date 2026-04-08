@@ -1,4 +1,4 @@
-import { type FC, useRef, useState, useEffect } from 'react'
+import { type FC, useRef, useState } from 'react'
 import type { ItemWithDetails, ListItemWithItem } from '../types'
 import ShopDot from './ShopDot'
 import TagBadge from './TagBadge'
@@ -70,24 +70,26 @@ const RepositoryCard: FC<RepositoryCardProps> = ({ item, onClick }) => (
 // ── Browse ───────────────────────────────────────────────────────────────────
 const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuantityChange, onClick }) => {
   const bought = listItem.state === 'bought'
-  const defaultUnit = listItem.unit ?? listItem.item.unit ?? ''
-  const defaultQty  = listItem.quantity != null ? String(listItem.quantity) : ''
-
-  const [qty, setQty]   = useState(defaultQty)
-  const [unit, setUnit] = useState(defaultUnit)
-
-  // Keep local state in sync when the listItem changes from the outside
-  useEffect(() => { setQty(listItem.quantity != null ? String(listItem.quantity) : '') }, [listItem.quantity])
-  useEffect(() => { setUnit(listItem.unit ?? listItem.item.unit ?? '') }, [listItem.unit, listItem.item.unit])
-
-  const commitQty = () => {
-    const parsed = qty.trim() === '' ? undefined : Number(qty)
-    const u      = unit.trim() || undefined
-    onQuantityChange(parsed, u)
-  }
+  const unit = listItem.unit ?? listItem.item.unit ?? ''
+  const qty  = listItem.quantity != null ? listItem.quantity : undefined
 
   const hasTags  = listItem.item.tags.length > 0
   const hasShops = listItem.item.shops.length > 0
+
+  const increment = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = (qty ?? 0) + 1
+    onQuantityChange(next, unit || undefined)
+  }
+
+  const decrement = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (qty == null || qty <= 1) {
+      onQuantityChange(undefined, unit || undefined)
+    } else {
+      onQuantityChange(qty - 1, unit || undefined)
+    }
+  }
 
   return (
     <div className={`flex items-center gap-2 px-3 py-2 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'}`}>
@@ -95,42 +97,39 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuant
       <button
         onClick={onToggle}
         aria-label={bought ? 'Mark active' : 'Mark bought'}
-        className={`w-4 h-4 rounded border flex-shrink-0 transition-colors ${bought ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-blue-500'}`}
+        className={`w-5 h-5 rounded border flex-shrink-0 transition-colors ${bought ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-blue-500'}`}
       >
         {bought && <svg viewBox="0 0 12 12" fill="white" className="w-full h-full p-0.5"><path d="M10 3L5 8.5 2 5.5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>}
       </button>
 
-      {/* Name */}
+      {/* Name + qty/unit stepper below */}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
         <span className={`text-sm font-medium truncate block ${bought ? 'line-through text-gray-500' : 'text-gray-100'}`}>
           {listItem.item.name}
         </span>
+        {!bought && (
+          <div className="flex items-center gap-1 mt-0.5" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={decrement}
+              aria-label="Decrease quantity"
+              className="w-7 h-7 flex items-center justify-center rounded border border-border text-gray-400 hover:text-gray-200 hover:border-gray-500 active:bg-border transition-colors text-base leading-none"
+            >
+              −
+            </button>
+            <span className="text-sm text-gray-300 min-w-[1.75rem] text-center tabular-nums">
+              {qty ?? '–'}
+            </span>
+            <button
+              onClick={increment}
+              aria-label="Increase quantity"
+              className="w-7 h-7 flex items-center justify-center rounded border border-border text-gray-400 hover:text-gray-200 hover:border-gray-500 active:bg-border transition-colors text-base leading-none"
+            >
+              +
+            </button>
+            {unit && <span className="text-xs text-gray-500 ml-1">{unit}</span>}
+          </div>
+        )}
       </div>
-
-      {/* Qty + unit inputs (browse mode only, not bought) */}
-      {!bought && (
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <input
-            type="number"
-            value={qty}
-            min={0}
-            onChange={e => setQty(e.target.value)}
-            onBlur={commitQty}
-            onKeyDown={e => { if (e.key === 'Enter') { commitQty(); (e.target as HTMLInputElement).blur() } }}
-            placeholder="qty"
-            className="w-12 bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500 text-right"
-          />
-          <input
-            type="text"
-            value={unit}
-            onChange={e => setUnit(e.target.value)}
-            onBlur={commitQty}
-            onKeyDown={e => { if (e.key === 'Enter') { commitQty(); (e.target as HTMLInputElement).blur() } }}
-            placeholder="unit"
-            className="w-10 bg-surface border border-border rounded px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
-          />
-        </div>
-      )}
 
       {/* Tags (top) + shop dots (bottom), right-aligned column */}
       {(hasTags || hasShops) && (
