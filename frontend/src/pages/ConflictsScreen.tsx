@@ -1,17 +1,55 @@
-import { type FC } from 'react'
+import { type FC, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 import { db } from '../db/schema'
 import type { Conflict } from '../types'
 
+const REDIRECT_DELAY = 3000
+
 const ConflictsScreen: FC = () => {
   const { conflicts, resolveConflict } = useStore()
   const navigate = useNavigate()
+  const [progress, setProgress] = useState(0)
+  const rafRef = useRef<number | null>(null)
+  const startRef = useRef<number | null>(null)
 
-  if (conflicts.length === 0) {
+  const allResolved = conflicts.length === 0
+
+  useEffect(() => {
+    if (!allResolved) {
+      // Reset if new conflicts arrive
+      setProgress(0)
+      startRef.current = null
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      return
+    }
+
+    const animate = (ts: number) => {
+      if (!startRef.current) startRef.current = ts
+      const elapsed = ts - startRef.current
+      const p = Math.min(elapsed / REDIRECT_DELAY, 1)
+      setProgress(p)
+      if (p < 1) {
+        rafRef.current = requestAnimationFrame(animate)
+      } else {
+        navigate('/')
+      }
+    }
+    rafRef.current = requestAnimationFrame(animate)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [allResolved, navigate])
+
+  if (allResolved) {
     return (
-      <div className="p-4 text-center text-sm text-gray-500 py-12">
-        No conflicts.
+      <div className="flex flex-col items-center justify-center h-full gap-4 px-6">
+        <div className="text-sm text-gray-400">All conflicts resolved</div>
+        <div className="w-full max-w-xs h-1 bg-border rounded-full overflow-hidden">
+          <div
+            className="h-full bg-blue-500 rounded-full"
+            style={{ width: `${progress * 100}%` }}
+          />
+        </div>
+        <div className="text-xs text-gray-600">Returning to lists…</div>
       </div>
     )
   }
