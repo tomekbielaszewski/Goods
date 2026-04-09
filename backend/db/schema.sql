@@ -100,3 +100,9 @@ CREATE INDEX IF NOT EXISTS idx_list_items_updated_at   ON list_items(updated_at)
 CREATE INDEX IF NOT EXISTS idx_skipped_list_item_id    ON list_item_skipped_shops(list_item_id);
 CREATE INDEX IF NOT EXISTS idx_session_items_item_id   ON session_items(item_id);
 CREATE INDEX IF NOT EXISTS idx_session_items_session_id ON session_items(session_id);
+
+CREATE TABLE IF NOT EXISTS bug_reports (
+    id         TEXT PRIMARY KEY,
+    text       TEXT NOT NULL,
+    created_at DATETIME NOT NULL
+);

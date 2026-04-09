@@ -15,6 +15,27 @@ const SettingsScreen: FC = () => {
   const [color, setColor] = useState(PALETTE[0]!)
   const [editId, setEditId] = useState<string | null>(null)
 
+  const [bugText, setBugText] = useState('')
+  const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+
+  const submitBug = async () => {
+    if (!bugText.trim()) return
+    setBugStatus('sending')
+    try {
+      const res = await fetch('/api/report-bug', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: bugText.trim() }),
+      })
+      if (!res.ok) throw new Error('server error')
+      setBugText('')
+      setBugStatus('sent')
+      setTimeout(() => setBugStatus('idle'), 3000)
+    } catch {
+      setBugStatus('error')
+    }
+  }
+
   const load = () => db.shops.filter(s => !s.deletedAt).toArray().then(setShops)
   useEffect(() => { void load() }, [])
 
@@ -115,6 +136,30 @@ const SettingsScreen: FC = () => {
                 Cancel
               </button>
             )}
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Report a bug</h2>
+        <div className="bg-card border border-border rounded-md p-3 space-y-2">
+          <textarea
+            value={bugText}
+            onChange={e => setBugText(e.target.value)}
+            placeholder="Describe the issue…"
+            rows={4}
+            className="w-full bg-surface border border-border rounded px-2.5 py-1.5 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void submitBug()}
+              disabled={!bugText.trim() || bugStatus === 'sending'}
+              className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs rounded transition-colors"
+            >
+              {bugStatus === 'sending' ? 'Sending…' : 'Submit'}
+            </button>
+            {bugStatus === 'sent' && <span className="text-xs text-green-400">Sent!</span>}
+            {bugStatus === 'error' && <span className="text-xs text-red-400">Failed to send.</span>}
           </div>
         </div>
       </section>

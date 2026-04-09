@@ -12,6 +12,4 @@ I use the app mostly with my phone. Move searchboxes in edit list view and items
 
 The sync indicator appears on the top and when it is there the whole UI moves slightly to the bottom. Always display it as a grayed out dot which lights up green when syncing and red when failed sync
 
-add "report a bug" dialog to the settings screen. It will be a simple textfield with submit button. This will upload that text to backend where it will be saved in db. 
-
 Add tag filter - list edit view. I can choose one tag and when filter is active - tapping it again will remove that filter completely

@@ -1,4 +1,4 @@
-# Grocery
+# Groceries
 
 Offline-first grocery management app. Works fully in the browser after the first load — no internet required while
 shopping. Syncs with a home server in the background when connectivity is available.

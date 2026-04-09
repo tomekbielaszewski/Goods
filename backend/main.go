@@ -38,6 +38,7 @@ func main() {
 	// API routes
 	r.Get("/api/bootstrap", handlers.Bootstrap(database))
 	r.Post("/api/sync", handlers.Sync(database))
+	r.Post("/api/report-bug", handlers.ReportBug(database))
 
 	// SPA static files
 	r.Get("/*", spaHandler())
