@@ -102,7 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_session_items_item_id   ON session_items(item_id)
 CREATE INDEX IF NOT EXISTS idx_session_items_session_id ON session_items(session_id);
 
 CREATE TABLE IF NOT EXISTS bug_reports (
-    id         TEXT PRIMARY KEY,
-    text       TEXT NOT NULL,
-    created_at DATETIME NOT NULL
+    id          TEXT PRIMARY KEY,
+    text        TEXT NOT NULL,
+    created_at  DATETIME NOT NULL,
+    resolved_at DATETIME
 );

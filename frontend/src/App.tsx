@@ -7,6 +7,7 @@ import RepositoryScreen from './pages/RepositoryScreen'
 import ItemDetailScreen from './pages/ItemDetailScreen'
 import SettingsScreen from './pages/SettingsScreen'
 import ConflictsScreen from './pages/ConflictsScreen'
+import BugReportsScreen from './pages/BugReportsScreen'
 import { scheduleSync } from './sync/syncClient'
 
 function App() {
@@ -22,7 +23,8 @@ function App() {
       <Route element={<Layout><RepositoryScreen /></Layout>}  path="/repository" />
       <Route element={<Layout><ItemDetailScreen /></Layout>}  path="/item/:id" />
       <Route element={<Layout><SettingsScreen /></Layout>}    path="/settings" />
-      <Route element={<Layout><ConflictsScreen /></Layout>}   path="/conflicts" />
+      <Route element={<Layout><ConflictsScreen /></Layout>}    path="/conflicts" />
+      <Route element={<Layout><BugReportsScreen /></Layout>}  path="/bug-reports" />
     </Routes>
   )
 }

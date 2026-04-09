@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -30,6 +31,11 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	return db, nil
 }
 
@@ -52,4 +58,20 @@ func applySchema(db *sql.DB) error {
 		return fmt.Errorf("apply schema: %w", err)
 	}
 	return nil
+}
+
+// migrate applies incremental schema changes that cannot be expressed as
+// idempotent CREATE TABLE IF NOT EXISTS statements.
+func migrate(db *sql.DB) error {
+	// Add resolved_at to existing bug_reports tables created before this column was introduced.
+	_, err := db.Exec(`ALTER TABLE bug_reports ADD COLUMN resolved_at DATETIME`)
+	if err != nil && !isDuplicateColumnError(err) {
+		return fmt.Errorf("migrate bug_reports.resolved_at: %w", err)
+	}
+	return nil
+}
+
+func isDuplicateColumnError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name") || strings.Contains(msg, "already exists")
 }

@@ -1,4 +1,5 @@
 import { type FC, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { db } from '../db/schema'
 import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
@@ -10,6 +11,7 @@ const PALETTE = [
 ]
 
 const SettingsScreen: FC = () => {
+  const navigate = useNavigate()
   const [shops, setShops] = useState<Shop[]>([])
   const [name, setName]   = useState('')
   const [color, setColor] = useState(PALETTE[0]!)
@@ -161,6 +163,12 @@ const SettingsScreen: FC = () => {
             {bugStatus === 'sent' && <span className="text-xs text-green-400">Sent!</span>}
             {bugStatus === 'error' && <span className="text-xs text-red-400">Failed to send.</span>}
           </div>
+          <button
+            onClick={() => navigate('/bug-reports')}
+            className="w-full py-1.5 border border-border text-xs text-gray-400 hover:text-gray-200 rounded transition-colors"
+          >
+            View all bug reports
+          </button>
         </div>
       </section>
 
