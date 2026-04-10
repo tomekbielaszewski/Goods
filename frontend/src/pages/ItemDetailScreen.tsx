@@ -211,19 +211,26 @@ const ItemDetailScreen: FC = () => {
               Add
             </button>
           </div>
-          {tags.filter(t => !selectedTags.includes(t.id)).length > 0 && (
-            <div className="flex gap-1.5 flex-wrap mt-2">
-              {tags.filter(t => !selectedTags.includes(t.id)).map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setSelectedTags(prev => [...prev, t.id])}
-                  className="text-xs px-1.5 py-0.5 rounded border border-dashed border-border text-gray-500 hover:border-gray-400 hover:text-gray-300 transition-colors"
-                >
-                  + {t.name}
-                </button>
-              ))}
-            </div>
-          )}
+          {(() => {
+            const normalized = normalizeTag(newTag)
+            const available = tags.filter(t => !selectedTags.includes(t.id))
+            const filtered = normalized
+              ? available.filter(t => t.name.includes(normalized))
+              : available
+            return filtered.length > 0 ? (
+              <div className="flex gap-1.5 flex-wrap mt-2">
+                {filtered.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTags(prev => [...prev, t.id])}
+                    className="text-xs px-1.5 py-0.5 rounded border border-dashed border-border text-gray-500 hover:border-gray-400 hover:text-gray-300 transition-colors"
+                  >
+                    + {t.name}
+                  </button>
+                ))}
+              </div>
+            ) : null
+          })()}
         </div>
 
         {/* Description */}

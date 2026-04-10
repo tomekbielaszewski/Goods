@@ -1,5 +1,3 @@
-In new item dialog - The textfield for adding new tags in new item dialog should also be a tag searchbox. Typing should search tags repository, hitting enter should add new one which is typed in this search field, I can also tap on the dropped down tags which match my search
-
 In new item dialog - Tags listed below the new tag textfield should be sorted by amount of tag usage accross all items. Do not display numbers, just tags, but sort by these numbers
 
 When I add 2 tags to an item, then that state is synced to server, then I remove one of the tags and wait for next sync - the removed tag will re-appear. I cannot remove tags
