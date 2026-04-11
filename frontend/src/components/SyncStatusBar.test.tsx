@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import SyncStatusBar from './SyncStatusBar'
@@ -18,6 +18,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 const resetStore = () =>
   useStore.setState({
     syncStatus: 'idle',
+    syncFailed: false,
     conflicts: [],
     lastSyncedAt: null,
     shoppingModeShopId: null,
@@ -40,35 +41,68 @@ const renderBar = () =>
     </MemoryRouter>
   )
 
+const getDot = (container: HTMLElement) =>
+  container.querySelector('.rounded-full') as HTMLElement
+
 describe('SyncStatusBar', () => {
-  it('returns null when status is idle and there are no conflicts', () => {
+  it('always renders even when status is idle and there are no conflicts', () => {
     useStore.setState({ syncStatus: 'idle', conflicts: [] })
     const { container } = renderBar()
-    expect(container.firstChild).toBeNull()
+    expect(container.firstChild).not.toBeNull()
   })
 
-  it('shows "Syncing…" text when status is syncing', () => {
-    useStore.setState({ syncStatus: 'syncing' })
-    renderBar()
-    expect(screen.getByText('Syncing…')).toBeInTheDocument()
-  })
-
-  it('shows spinner svg when syncing', () => {
-    useStore.setState({ syncStatus: 'syncing' })
+  it('shows a gray dot when status is idle', () => {
+    useStore.setState({ syncStatus: 'idle', conflicts: [] })
     const { container } = renderBar()
-    expect(container.querySelector('svg')).toBeInTheDocument()
+    expect(getDot(container)).toHaveClass('bg-gray-600')
   })
 
-  it('shows "Offline" when status is offline', () => {
-    useStore.setState({ syncStatus: 'offline' })
-    renderBar()
-    expect(screen.getByText('Offline')).toBeInTheDocument()
+  it('shows a green dot when status is syncing with no prior failure', () => {
+    useStore.setState({ syncStatus: 'syncing', syncFailed: false })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-green-400')
   })
 
-  it('shows "Sync error" when status is error', () => {
-    useStore.setState({ syncStatus: 'error' })
-    renderBar()
-    expect(screen.getByText('Sync error')).toBeInTheDocument()
+  it('shows a green dot when status is synced', () => {
+    useStore.setState({ syncStatus: 'synced', syncFailed: false })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-green-400')
+  })
+
+  it('transitions from synced to idle after 600ms, showing gray dot', () => {
+    vi.useFakeTimers()
+    useStore.setState({ syncStatus: 'synced', syncFailed: false })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-green-400')
+    act(() => { vi.advanceTimersByTime(600) })
+    expect(getDot(container)).toHaveClass('bg-gray-600')
+    vi.useRealTimers()
+  })
+
+  it('shows a red dot when status is offline', () => {
+    useStore.setState({ syncStatus: 'offline', syncFailed: true })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-red-500')
+  })
+
+  it('shows a red dot when status is error', () => {
+    useStore.setState({ syncStatus: 'error', syncFailed: true })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-red-500')
+  })
+
+  it('keeps red dot while syncing after a prior failure', () => {
+    useStore.setState({ syncStatus: 'syncing', syncFailed: true })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-red-500')
+  })
+
+  it('clears red dot to green when synced after a prior failure', () => {
+    vi.useFakeTimers()
+    useStore.setState({ syncStatus: 'synced', syncFailed: false })
+    const { container } = renderBar()
+    expect(getDot(container)).toHaveClass('bg-green-400')
+    vi.useRealTimers()
   })
 
   it('renders when status is idle but conflicts exist', () => {

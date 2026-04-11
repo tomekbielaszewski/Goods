@@ -1,29 +1,27 @@
-import { type FC } from 'react'
+import { type FC, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 
 const SyncStatusBar: FC = () => {
-  const { syncStatus, conflicts } = useStore()
+  const { syncStatus, syncFailed, conflicts, setSyncStatus } = useStore()
   const navigate = useNavigate()
 
-  if (syncStatus === 'idle' && conflicts.length === 0) return null
+  // After a successful sync, hold the green dot for 600ms then return to idle
+  useEffect(() => {
+    if (syncStatus !== 'synced') return
+    const timer = setTimeout(() => setSyncStatus('idle'), 600)
+    return () => clearTimeout(timer)
+  }, [syncStatus, setSyncStatus])
+
+  const dotColor =
+    syncFailed                                              ? 'bg-red-500' :
+    syncStatus === 'syncing' || syncStatus === 'synced'     ? 'bg-green-400' :
+    'bg-gray-600'
 
   return (
     <div className="h-6 flex items-center justify-between px-3 text-xs border-b border-border">
-      <span className={
-        syncStatus === 'syncing' ? 'text-blue-400 flex items-center gap-1' :
-        syncStatus === 'error'   ? 'text-red-400' :
-        syncStatus === 'offline' ? 'text-gray-500' : 'text-gray-500'
-      }>
-        {syncStatus === 'syncing' && (
-          <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
-          </svg>
-        )}
-        {syncStatus === 'syncing' && 'Syncing…'}
-        {syncStatus === 'error'   && 'Sync error'}
-        {syncStatus === 'offline' && 'Offline'}
+      <span className="flex items-center gap-1.5">
+        <span className={`inline-block w-2 h-2 rounded-full ${dotColor}`} />
       </span>
 
       {conflicts.length > 0 && (

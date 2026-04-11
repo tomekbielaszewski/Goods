@@ -14,7 +14,7 @@ export async function bootstrap(): Promise<void> {
     const data: BootstrapResponse = await res.json()
     await writeAll(data)
     setLastSyncedAt(data.serverTime)
-    setSyncStatus('idle')
+    setSyncStatus('synced')
   } catch (e) {
     console.error('bootstrap failed', e)
     setSyncStatus('error')
@@ -61,7 +61,7 @@ export async function sync(): Promise<void> {
     }
 
     setLastSyncedAt(data.serverTime)
-    setSyncStatus('idle')
+    setSyncStatus('synced')
   } catch (e) {
     console.error('sync failed', e)
     setSyncStatus(navigator.onLine ? 'error' : 'offline')

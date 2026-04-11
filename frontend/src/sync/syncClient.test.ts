@@ -129,7 +129,7 @@ describe('bootstrap', () => {
   it('bootstrap_setsLastSyncedAt sets status back to idle on success', async () => {
     mockJsonResponse(makeBootstrapResponse())
     await bootstrap()
-    expect(useStore.getState().syncStatus).toBe('idle')
+    expect(useStore.getState().syncStatus).toBe('synced')
   })
 
   it('bootstrap_setsOfflineOnNetworkError sets status to error when fetch throws', async () => {
