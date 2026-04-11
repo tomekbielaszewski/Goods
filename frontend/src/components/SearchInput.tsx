@@ -8,9 +8,10 @@ interface SearchInputProps {
   onSelect: (item: ItemWithDetails) => void
   onCreateNew: (name: string) => void
   excludeIds?: Set<string>
+  dropUp?: boolean
 }
 
-const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', onSelect, onCreateNew, excludeIds }) => {
+const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', onSelect, onCreateNew, excludeIds, dropUp }) => {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ItemWithDetails[]>([])
   const [open, setOpen] = useState(false)
@@ -57,7 +58,7 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
         className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
       />
       {open && (results.length > 0 || query.trim()) && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded shadow-lg z-50 overflow-hidden">
+        <div className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 right-0 bg-card border border-border rounded shadow-lg z-50 overflow-hidden`}>
           {results.map(item => (
             <button
               key={item.id}

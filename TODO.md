@@ -1,9 +1,5 @@
 In new item dialog - Tags listed below the new tag textfield should be sorted by amount of tag usage accross all items. Do not display numbers, just tags, but sort by these numbers
 
-I use the app mostly with my phone. Move "New item" and "new list" buttons to the bottom. This will be easier to tap with my thumb
-
-I use the app mostly with my phone. Move searchboxes in edit list view and items catalogue view to the bottom. This will be easier to tap with my thumb
-
 Kiedy wyszukuję itemek w liście zakupów - polskie znaki w nazwie itemka mają się matchować z angielskimi odpowiednikami. Typu ó vs o, ż vs z itd
 
 Dodać możliwość ustawienia domyślnej ilości itemka w edycji itemka

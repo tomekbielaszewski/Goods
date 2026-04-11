@@ -19,26 +19,7 @@ const RepositoryScreen: FC = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 pt-3 pb-2 border-b border-border">
-        <div className="flex items-center gap-2 mb-2">
-          <h1 className="flex-1 text-sm font-semibold text-gray-100">Item Catalog</h1>
-          <button
-            onClick={() => navigate('/item/new')}
-            className="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-          >
-            + New item
-          </button>
-        </div>
-        <input
-          type="text"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && query.trim() && !exactMatch)
-              navigate(`/item/new?name=${encodeURIComponent(query.trim())}`)
-          }}
-          placeholder="Search items…"
-          className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-        />
+        <h1 className="text-sm font-semibold text-gray-100">Item Catalog</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
@@ -61,6 +42,26 @@ const RepositoryScreen: FC = () => {
             onClick={() => navigate(`/item/${item.id}`)}
           />
         ))}
+      </div>
+
+      <div className="px-3 pt-2 pb-3 border-t border-border space-y-2">
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && query.trim() && !exactMatch)
+              navigate(`/item/new?name=${encodeURIComponent(query.trim())}`)
+          }}
+          placeholder="Search items…"
+          className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+        />
+        <button
+          onClick={() => navigate('/item/new')}
+          className="w-full text-sm py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+        >
+          + New item
+        </button>
       </div>
     </div>
   )
