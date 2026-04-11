@@ -48,8 +48,12 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
         value={query}
         onChange={e => setQuery(e.target.value)}
         onKeyDown={e => {
-          if (e.key === 'Enter' && query.trim() && !exactMatch) {
-            onCreateNew(query.trim())
+          if (e.key === 'Enter' && query.trim()) {
+            if (results.length > 0) {
+              onSelect(results[0])
+            } else {
+              onCreateNew(query.trim())
+            }
             setQuery('')
             setOpen(false)
           }
