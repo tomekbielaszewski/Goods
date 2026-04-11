@@ -391,6 +391,105 @@ func TestSync_ServerChanges(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestSync_NoConflict_WhenContentIdentical
+// ---------------------------------------------------------------------------
+
+// TestSync_NoConflict_WhenContentIdentical reproduces a false-positive conflict
+// that arises when the server already has an item whose updatedAt is after
+// lastSyncedAt (e.g. because the client clock is slightly ahead of the server
+// clock, or because serverTime was captured before applyChanges ran).
+//
+// If the client resends that same item with the same updatedAt and the same
+// field values, there is no real conflict — no conflict must be reported.
+func TestSync_NoConflict_WhenContentIdentical(t *testing.T) {
+	database := newTestDB(t)
+	srv := newTestServer(t, database)
+
+	// lastSyncedAt is deliberately BEFORE the item's updatedAt to simulate
+	// the clock-skew / race scenario.
+	lastSync := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Millisecond)
+	itemUpdatedAt := lastSync.Add(10 * time.Minute) // item timestamp is after lastSync
+	unit := "pcs"
+
+	// Seed the server with an item whose updatedAt > lastSync.
+	_, err := database.Exec(
+		`INSERT INTO items(id, name, unit, version, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
+		"item-no-conflict", "Wędlina", unit, 1,
+		lastSync.Add(-time.Hour).Format(time.RFC3339Nano),
+		itemUpdatedAt.Format(time.RFC3339Nano),
+	)
+	require.NoError(t, err)
+
+	// Client sends the exact same item — same content, same updatedAt.
+	item := models.Item{
+		ID:        "item-no-conflict",
+		Name:      "Wędlina",
+		Unit:      ptr(unit),
+		Version:   1,
+		CreatedAt: lastSync.Add(-time.Hour),
+		UpdatedAt: itemUpdatedAt,
+	}
+	changes := emptyChanges()
+	changes.Items = []models.Item{item}
+
+	resp := doSync(t, srv, syncRequest(lastSync, changes))
+
+	assert.Empty(t, resp.Conflicts, "identical content must not produce a conflict")
+}
+
+// ---------------------------------------------------------------------------
+// TestSync_Conflict_ServerPayloadHasFullData
+// ---------------------------------------------------------------------------
+
+// TestSync_Conflict_ServerPayloadHasFullData ensures that when a conflict is
+// detected, the server-side payload in the conflict contains all fields from
+// the database record — not just the ID/version/updatedAt skeleton that was
+// previously constructed.
+func TestSync_Conflict_ServerPayloadHasFullData(t *testing.T) {
+	database := newTestDB(t)
+	srv := newTestServer(t, database)
+
+	lastSync := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Millisecond)
+	serverUpdatedAt := lastSync.Add(5 * time.Minute)
+	clientUpdatedAt := lastSync.Add(10 * time.Minute)
+	createdAt := lastSync.Add(-time.Hour)
+	unit := "pcs"
+
+	// Seed the full server record with all fields populated.
+	_, err := database.Exec(
+		`INSERT INTO items(id, name, unit, version, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
+		"item-conflict-full", "ServerName", unit, 2,
+		createdAt.Format(time.RFC3339Nano),
+		serverUpdatedAt.Format(time.RFC3339Nano),
+	)
+	require.NoError(t, err)
+
+	// Client sends a conflicting version (also updated after lastSync).
+	item := models.Item{
+		ID:        "item-conflict-full",
+		Name:      "ClientName",
+		Unit:      ptr(unit),
+		Version:   2,
+		CreatedAt: createdAt,
+		UpdatedAt: clientUpdatedAt,
+	}
+	changes := emptyChanges()
+	changes.Items = []models.Item{item}
+
+	resp := doSync(t, srv, syncRequest(lastSync, changes))
+
+	require.Len(t, resp.Conflicts, 1, "exactly one conflict expected")
+
+	var serverPayload map[string]any
+	require.NoError(t, json.Unmarshal(resp.Conflicts[0].Server, &serverPayload))
+
+	// The server payload must carry the real name, not empty string.
+	assert.Equal(t, "ServerName", serverPayload["name"], "server conflict payload must have full name field")
+	// createdAt must not be Go zero time.
+	assert.NotEqual(t, "0001-01-01T00:00:00Z", serverPayload["createdAt"], "server conflict payload must have real createdAt")
+}
+
+// ---------------------------------------------------------------------------
 // TestSync_InvalidJSON
 // ---------------------------------------------------------------------------
 
@@ -407,6 +506,104 @@ func TestSync_InvalidJSON(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// ---------------------------------------------------------------------------
+// TestSync_RemoveShopAssociation
+// ---------------------------------------------------------------------------
+
+// TestSync_RemoveShopAssociation reproduces the same union-merge bug for
+// item_shops: removing a shop association and syncing must not leave the old
+// association on the server.
+func TestSync_RemoveShopAssociation(t *testing.T) {
+	database := newTestDB(t)
+	srv := newTestServer(t, database)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	lastSync := now.Add(-time.Hour)
+
+	item := models.Item{ID: "rs-item-1", Name: "Butter", Version: 1, CreatedAt: now, UpdatedAt: now}
+	shop1 := models.Shop{ID: "rs-shop-1", Name: "Tesco", Color: "#111", Version: 1, UpdatedAt: now}
+	shop2 := models.Shop{ID: "rs-shop-2", Name: "Lidl", Color: "#222", Version: 1, UpdatedAt: now}
+
+	// --- Step 1: sync item associated with 2 shops ---
+	changes := emptyChanges()
+	changes.Items = []models.Item{item}
+	changes.Shops = []models.Shop{shop1, shop2}
+	changes.ItemShops = []models.ItemShop{
+		{ItemID: "rs-item-1", ShopID: "rs-shop-1"},
+		{ItemID: "rs-item-1", ShopID: "rs-shop-2"},
+	}
+	doSync(t, srv, syncRequest(lastSync, changes))
+
+	// Sanity: server should have 2 itemShops
+	br := doBootstrap(t, srv)
+	require.Len(t, br.ItemShops, 2, "setup: server should have 2 itemShops after first sync")
+
+	// --- Step 2: client removes shop2, syncs with only shop1 ---
+	lastSync = now
+	changes2 := emptyChanges()
+	changes2.Items = []models.Item{item}
+	changes2.Shops = []models.Shop{shop1, shop2}
+	changes2.ItemShops = []models.ItemShop{
+		{ItemID: "rs-item-1", ShopID: "rs-shop-1"},
+	}
+	doSync(t, srv, syncRequest(lastSync, changes2))
+
+	// --- Step 3: server must have only 1 itemShop ---
+	br2 := doBootstrap(t, srv)
+	require.Len(t, br2.ItemShops, 1, "after removing shop2, server must have only 1 itemShop")
+	assert.Equal(t, "rs-shop-1", br2.ItemShops[0].ShopID)
+}
+
+// ---------------------------------------------------------------------------
+// TestSync_RemoveTag
+// ---------------------------------------------------------------------------
+
+// TestSync_RemoveTag reproduces the bug where removing a tag from an item and
+// syncing still leaves the old tag on the server.  The sequence is:
+//  1. Sync item + 2 tags → server stores both
+//  2. Client removes one tag, syncs with only 1 tag → server must store only 1
+//  3. Bootstrap must return exactly 1 itemTag for the item
+func TestSync_RemoveTag(t *testing.T) {
+	database := newTestDB(t)
+	srv := newTestServer(t, database)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	lastSync := now.Add(-time.Hour)
+
+	item := models.Item{ID: "rt-item-1", Name: "Milk", Version: 1, CreatedAt: now, UpdatedAt: now}
+	tag1 := models.Tag{ID: "rt-tag-1", Name: "dairy"}
+	tag2 := models.Tag{ID: "rt-tag-2", Name: "cold"}
+
+	// --- Step 1: sync item with 2 tags ---
+	changes := emptyChanges()
+	changes.Items = []models.Item{item}
+	changes.Tags = []models.Tag{tag1, tag2}
+	changes.ItemTags = []models.ItemTag{
+		{ItemID: "rt-item-1", TagID: "rt-tag-1"},
+		{ItemID: "rt-item-1", TagID: "rt-tag-2"},
+	}
+	doSync(t, srv, syncRequest(lastSync, changes))
+
+	// Sanity: server should have 2 itemTags
+	br := doBootstrap(t, srv)
+	require.Len(t, br.ItemTags, 2, "setup: server should have 2 itemTags after first sync")
+
+	// --- Step 2: client removes tag2, syncs with only tag1 ---
+	lastSync = now
+	changes2 := emptyChanges()
+	changes2.Items = []models.Item{item}
+	changes2.Tags = []models.Tag{tag1, tag2}
+	changes2.ItemTags = []models.ItemTag{
+		{ItemID: "rt-item-1", TagID: "rt-tag-1"},
+	}
+	doSync(t, srv, syncRequest(lastSync, changes2))
+
+	// --- Step 3: server must have only 1 itemTag ---
+	br2 := doBootstrap(t, srv)
+	require.Len(t, br2.ItemTags, 1, "after removing tag2, server must have only 1 itemTag")
+	assert.Equal(t, "rt-tag-1", br2.ItemTags[0].TagID)
 }
 
 // ---------------------------------------------------------------------------

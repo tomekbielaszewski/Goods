@@ -1,6 +1,6 @@
 In new item dialog - Tags listed below the new tag textfield should be sorted by amount of tag usage accross all items. Do not display numbers, just tags, but sort by these numbers
 
-When I add 2 tags to an item, then that state is synced to server, then I remove one of the tags and wait for next sync - the removed tag will re-appear. I cannot remove tags
+When I add 2 tags to an item, then that state is synced to server, then I remove one of the tags, save the item and wait for next sync - the removed tag will re-appear. I cannot remove tags
 
 I use the app mostly with my phone. Move "New item" and "new list" buttons to the bottom. This will be easier to tap with my thumb
 

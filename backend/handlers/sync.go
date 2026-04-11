@@ -85,6 +85,17 @@ func applyChanges(db *sql.DB, req models.SyncRequest, resp *models.SyncResponse)
 		}
 	}
 
+	// Full-replace per item: delete existing shop associations for any item
+	// present in the request, then insert the new set.
+	touchedItemsForShops := map[string]struct{}{}
+	for _, x := range req.Changes.ItemShops {
+		touchedItemsForShops[x.ItemID] = struct{}{}
+	}
+	for itemID := range touchedItemsForShops {
+		if _, err := tx.Exec(`DELETE FROM item_shops WHERE item_id=?`, itemID); err != nil {
+			return err
+		}
+	}
 	for _, x := range req.Changes.ItemShops {
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO item_shops(item_id, shop_id)
@@ -96,6 +107,19 @@ func applyChanges(db *sql.DB, req models.SyncRequest, resp *models.SyncResponse)
 		}
 	}
 
+	// Collect the set of items whose tags are being synced, then replace
+	// their tag associations in full (delete old, insert new).  This ensures
+	// that a client removing a tag is honoured rather than silently unioned
+	// with the server's existing set.
+	touchedItems := map[string]struct{}{}
+	for _, x := range req.Changes.ItemTags {
+		touchedItems[x.ItemID] = struct{}{}
+	}
+	for itemID := range touchedItems {
+		if _, err := tx.Exec(`DELETE FROM item_tags WHERE item_id=?`, itemID); err != nil {
+			return err
+		}
+	}
 	for _, x := range req.Changes.ItemTags {
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO item_tags(item_id, tag_id)
@@ -171,6 +195,50 @@ func applyChanges(db *sql.DB, req models.SyncRequest, resp *models.SyncResponse)
 	return tx.Commit()
 }
 
+// ptrStringEqual returns true if both pointers are nil, or both point to equal strings.
+func ptrStringEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+// ptrTimeEqual returns true if both pointers are nil, or both point to equal times.
+func ptrTimeEqual(a, b *time.Time) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Equal(*b)
+}
+
+func shopContentEqual(a, b models.Shop) bool {
+	return a.Name == b.Name && a.Color == b.Color && ptrTimeEqual(a.DeletedAt, b.DeletedAt)
+}
+
+func itemContentEqual(a, b models.Item) bool {
+	return a.Name == b.Name &&
+		ptrStringEqual(a.Unit, b.Unit) &&
+		ptrStringEqual(a.Description, b.Description) &&
+		ptrStringEqual(a.Notes, b.Notes) &&
+		ptrTimeEqual(a.DeletedAt, b.DeletedAt)
+}
+
+func listContentEqual(a, b models.List) bool {
+	return a.Name == b.Name && ptrTimeEqual(a.DeletedAt, b.DeletedAt)
+}
+
+func listItemContentEqual(a, b models.ListItem) bool {
+	return a.State == b.State &&
+		ptrStringEqual(a.Unit, b.Unit) &&
+		ptrStringEqual(a.Notes, b.Notes)
+}
+
 func upsertShop(tx *sql.Tx, s models.Shop, lastSync time.Time) (applied bool, conflict *models.Conflict, err error) {
 	var dbVersion int
 	var dbUpdatedAt time.Time
@@ -189,7 +257,21 @@ func upsertShop(tx *sql.Tx, s models.Shop, lastSync time.Time) (applied bool, co
 	}
 
 	if gsync.IsConflict(s.UpdatedAt, dbUpdatedAt, lastSync) {
-		dbShop := models.Shop{ID: s.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		var dbShop models.Shop
+		if e := tx.QueryRow(`SELECT id, name, color, version, updated_at, deleted_at FROM shops WHERE id=?`, s.ID).
+			Scan(&dbShop.ID, &dbShop.Name, &dbShop.Color, &dbShop.Version, &dbShop.UpdatedAt, &dbShop.DeletedAt); e != nil {
+			return false, nil, e
+		}
+		if shopContentEqual(s, dbShop) {
+			if s.UpdatedAt.After(dbUpdatedAt) {
+				_, err = tx.Exec(
+					`UPDATE shops SET name=?, color=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+					s.Name, s.Color, s.Version, s.UpdatedAt, s.DeletedAt, s.ID,
+				)
+				return err == nil, nil, err
+			}
+			return false, nil, nil
+		}
 		c, e := gsync.MakeConflict("shop", s.ID, s, dbShop)
 		return false, &c, e
 	}
@@ -224,7 +306,22 @@ func upsertItem(tx *sql.Tx, item models.Item, lastSync time.Time) (applied bool,
 	}
 
 	if gsync.IsConflict(item.UpdatedAt, dbUpdatedAt, lastSync) {
-		dbItem := models.Item{ID: item.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		var dbItem models.Item
+		if e := tx.QueryRow(`SELECT id, name, unit, description, notes, version, created_at, updated_at, deleted_at FROM items WHERE id=?`, item.ID).
+			Scan(&dbItem.ID, &dbItem.Name, &dbItem.Unit, &dbItem.Description, &dbItem.Notes, &dbItem.Version, &dbItem.CreatedAt, &dbItem.UpdatedAt, &dbItem.DeletedAt); e != nil {
+			return false, nil, e
+		}
+		if itemContentEqual(item, dbItem) {
+			if item.UpdatedAt.After(dbUpdatedAt) {
+				_, err = tx.Exec(
+					`UPDATE items SET name=?, unit=?, description=?, notes=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+					item.Name, item.Unit, item.Description, item.Notes,
+					item.Version, item.UpdatedAt, item.DeletedAt, item.ID,
+				)
+				return err == nil, nil, err
+			}
+			return false, nil, nil
+		}
 		c, e := gsync.MakeConflict("item", item.ID, item, dbItem)
 		return false, &c, e
 	}
@@ -258,7 +355,21 @@ func upsertList(tx *sql.Tx, l models.List, lastSync time.Time) (applied bool, co
 	}
 
 	if gsync.IsConflict(l.UpdatedAt, dbUpdatedAt, lastSync) {
-		dbList := models.List{ID: l.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		var dbList models.List
+		if e := tx.QueryRow(`SELECT id, name, version, created_at, updated_at, deleted_at FROM lists WHERE id=?`, l.ID).
+			Scan(&dbList.ID, &dbList.Name, &dbList.Version, &dbList.CreatedAt, &dbList.UpdatedAt, &dbList.DeletedAt); e != nil {
+			return false, nil, e
+		}
+		if listContentEqual(l, dbList) {
+			if l.UpdatedAt.After(dbUpdatedAt) {
+				_, err = tx.Exec(
+					`UPDATE lists SET name=?, version=?, updated_at=?, deleted_at=? WHERE id=?`,
+					l.Name, l.Version, l.UpdatedAt, l.DeletedAt, l.ID,
+				)
+				return err == nil, nil, err
+			}
+			return false, nil, nil
+		}
 		c, e := gsync.MakeConflict("list", l.ID, l, dbList)
 		return false, &c, e
 	}
@@ -293,7 +404,21 @@ func upsertListItem(tx *sql.Tx, li models.ListItem, lastSync time.Time) (applied
 	}
 
 	if gsync.IsConflict(li.UpdatedAt, dbUpdatedAt, lastSync) {
-		dbLI := models.ListItem{ID: li.ID, Version: dbVersion, UpdatedAt: dbUpdatedAt}
+		var dbLI models.ListItem
+		if e := tx.QueryRow(`SELECT id, list_id, item_id, state, quantity, unit, notes, version, added_at, updated_at FROM list_items WHERE id=?`, li.ID).
+			Scan(&dbLI.ID, &dbLI.ListID, &dbLI.ItemID, &dbLI.State, &dbLI.Quantity, &dbLI.Unit, &dbLI.Notes, &dbLI.Version, &dbLI.AddedAt, &dbLI.UpdatedAt); e != nil {
+			return false, nil, e
+		}
+		if listItemContentEqual(li, dbLI) {
+			if li.UpdatedAt.After(dbUpdatedAt) {
+				_, err = tx.Exec(
+					`UPDATE list_items SET state=?, quantity=?, unit=?, notes=?, version=?, updated_at=? WHERE id=?`,
+					li.State, li.Quantity, li.Unit, li.Notes, li.Version, li.UpdatedAt, li.ID,
+				)
+				return err == nil, nil, err
+			}
+			return false, nil, nil
+		}
 		c, e := gsync.MakeConflict("listItem", li.ID, li, dbLI)
 		return false, &c, e
 	}
