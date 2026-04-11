@@ -97,7 +97,7 @@ const ListScreen: FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-3 pt-3 pb-2 border-b border-border space-y-2">
+      <div className="px-3 pt-3 pb-2 border-b border-border">
         <div className="flex items-center gap-2">
           <button onClick={() => { exitShoppingMode(); navigate('/') }} aria-label="Back" className="text-gray-400 hover:text-gray-200 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -138,17 +138,6 @@ const ListScreen: FC = () => {
             </>
           )}
         </div>
-
-        {!isShoppingMode && (
-          <>
-            <SearchInput
-              onSelect={addItem}
-              onCreateNew={name => navigate(`/item/new?name=${encodeURIComponent(name)}&listId=${id}`)}
-              excludeIds={new Set(activeItems.map(li => li.itemId))}
-            />
-            {id && <SuggestionsPanel listId={id} onAdd={addItem} />}
-          </>
-        )}
       </div>
 
       {/* Item list */}
@@ -190,7 +179,7 @@ const ListScreen: FC = () => {
           <>
             {activeItems.length === 0 && boughtItems.length === 0 && (
               <div className="text-center py-8 text-gray-500 text-sm">
-                No items yet. Search above to add some.
+                No items yet. Search below to add some.
               </div>
             )}
             {activeItems.map(li => (
@@ -225,6 +214,18 @@ const ListScreen: FC = () => {
           </>
         )}
       </div>
+
+      {!isShoppingMode && (
+        <div className="border-t border-border px-3 pt-2 pb-3 space-y-2">
+          {id && <SuggestionsPanel listId={id} onAdd={addItem} />}
+          <SearchInput
+            dropUp
+            onSelect={addItem}
+            onCreateNew={name => navigate(`/item/new?name=${encodeURIComponent(name)}&listId=${id}`)}
+            excludeIds={new Set(activeItems.map(li => li.itemId))}
+          />
+        </div>
+      )}
     </div>
   )
 }
