@@ -4,6 +4,7 @@ import type { Conflict, SortMode, SyncStatus } from '../types'
 interface AppStore {
   // sync
   syncStatus: SyncStatus
+  syncFailed: boolean      // true if last completed sync failed; clears on success
   conflicts: Conflict[]
   lastSyncedAt: string | null
 
@@ -25,12 +26,19 @@ interface AppStore {
 
 export const useStore = create<AppStore>((set) => ({
   syncStatus: 'idle',
+  syncFailed: false,
   conflicts: [],
   lastSyncedAt: localStorage.getItem('lastSyncedAt'),
   shoppingModeShopId: null,
   sortModes: {},
 
-  setSyncStatus: (syncStatus) => set({ syncStatus }),
+  setSyncStatus: (syncStatus) => set(state => ({
+    syncStatus,
+    syncFailed:
+      syncStatus === 'error' || syncStatus === 'offline' ? true :
+      syncStatus === 'synced'                            ? false :
+      state.syncFailed,
+  })),
 
   setLastSyncedAt: (t) => {
     localStorage.setItem('lastSyncedAt', t)

@@ -6,6 +6,12 @@ I use the app mostly with my phone. Move "New item" and "new list" buttons to th
 
 I use the app mostly with my phone. Move searchboxes in edit list view and items catalogue view to the bottom. This will be easier to tap with my thumb
 
-The sync indicator appears on the top and when it is there the whole UI moves slightly to the bottom. Always display it as a grayed out dot which lights up green when syncing and red when failed sync
+Kiedy wyszukuję itemek w liście zakupów - polskie znaki w nazwie itemka mają się matchować z angielskimi odpowiednikami. Typu ó vs o, ż vs z itd
 
-Add tag filter - list edit view. I can choose one tag and when filter is active - tapping it again will remove that filter completely
+Dodać możliwość ustawienia domyślnej ilości itemka w edycji itemka
+
+Kiedy ustawiam wagę w kg to domyślnie ustawić 1kg ale jak chce w podglądzie listy zmniejszyć to nie ma sensu ustawiać 0kg. Wtedy zmniejszać do 0.75, 0.5, 0.25, 0.1. I właśnie końcowe 0.1kg ma być minimum dostepnym
+
+Jak ustawiam wagę w gramach to ciężko ustawić na przykład 500g. Inkrementuj po 100g
+
+Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem tego sklepu
