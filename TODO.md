@@ -10,7 +10,3 @@ Jak ustawiam wagę w gramach to ciężko ustawić na przykład 500g. Inkrementuj
 Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem tego sklepu
 
 In item repository view when I search for items - search box is at the bottom and my virtual phone keyboard moves the search box up, just above the keyboard. That makes the results, which usually appear on the very top, to be moved out of the view.
-
-> In editing a shopping list when I search for items and I type the exact name of the item and then I add space (which is common with autocorrect on the phone) it is no longer in the search result list. For example "szczypiorek" appears in results but "szczypiorek " does not (notice the space after the word)
-
-Add "copy to clipboard" button in my bug-reports subpage. This button will copy to clipboard a single description of a bug

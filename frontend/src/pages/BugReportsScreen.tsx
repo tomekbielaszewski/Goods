@@ -1,4 +1,4 @@
-import { type FC, useEffect, useState } from 'react'
+import { type FC, useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 interface BugReport {
@@ -29,6 +29,18 @@ const BugReportsScreen: FC = () => {
   }
 
   useEffect(() => { void load() }, [])
+
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const copyToClipboard = useCallback(async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(prev => prev === id ? null : prev), 1500)
+    } catch {
+      // silent — clipboard access may be denied
+    }
+  }, [])
 
   const resolve = async (id: string) => {
     try {
@@ -72,6 +84,21 @@ const BugReportsScreen: FC = () => {
               <p className={`flex-1 text-sm break-words min-w-0 ${report.resolved_at ? 'line-through text-gray-500' : 'text-gray-200'}`}>
                 {report.text}
               </p>
+              <button
+                onClick={() => void copyToClipboard(report.id, report.text)}
+                className="shrink-0 text-gray-500 hover:text-gray-200 transition-colors"
+                title="Copy to clipboard"
+              >
+                {copiedId === report.id ? (
+                  <svg className="w-3.5 h-3.5 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-4 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </button>
               {!report.resolved_at && (
                 <button
                   onClick={() => void resolve(report.id)}
