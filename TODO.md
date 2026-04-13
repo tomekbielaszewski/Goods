@@ -1,9 +1,6 @@
 In new item dialog - Tags listed below the new tag textfield should be sorted by amount of tag usage accross all 
 items. Do not display numbers, just tags, but sort by these numbers
 
-Change the name of the application to "Groceries" instead of "Grocery", and link Github repo in about section: 
-https://github.com/tomekbielaszewski/groceries
-
 Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem 
 tego sklepu
 
