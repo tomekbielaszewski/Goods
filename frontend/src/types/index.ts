@@ -135,5 +135,5 @@ export interface BootstrapResponse extends SyncChanges {
   serverTime: string
 }
 
-export type SortMode = 'date' | 'name' | 'frequency'
+export type SortMode = 'date' | 'name' | 'frequency' | 'tag'
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline'

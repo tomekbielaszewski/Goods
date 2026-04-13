@@ -10,6 +10,7 @@ const OPTIONS: { value: SortMode; label: string }[] = [
   { value: 'date',      label: 'Date' },
   { value: 'name',      label: 'Name' },
   { value: 'frequency', label: 'Freq' },
+  { value: 'tag',       label: 'Tag' },
 ]
 
 const SortToggle: FC<SortToggleProps> = ({ value, onChange }) => (

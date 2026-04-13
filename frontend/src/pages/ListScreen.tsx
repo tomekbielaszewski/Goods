@@ -237,6 +237,14 @@ function useSorted(items: ListItemWithItem[], mode: SortMode): ListItemWithItem[
   return [...items].sort((a, b) => {
     if (mode === 'name')      return a.item.name.localeCompare(b.item.name)
     if (mode === 'frequency') return b.item.frequency - a.item.frequency
+    if (mode === 'tag') {
+      const tagA = a.item.tags[0]?.name
+      const tagB = b.item.tags[0]?.name
+      if (tagA == null && tagB == null) return 0
+      if (tagA == null) return 1
+      if (tagB == null) return -1
+      return tagA.localeCompare(tagB)
+    }
     return b.addedAt.localeCompare(a.addedAt) // date (newest first)
   })
 }
