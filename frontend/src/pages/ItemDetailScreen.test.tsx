@@ -160,3 +160,48 @@ describe('ItemDetailScreen — tag filtering', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// purchase history table
+// ---------------------------------------------------------------------------
+
+const renderItem = (id: string) =>
+  render(
+    <MemoryRouter initialEntries={[`/item/${id}`]}>
+      <Routes>
+        <Route path="/item/:id" element={<ItemDetailScreen />} />
+      </Routes>
+    </MemoryRouter>
+  )
+
+describe('ItemDetailScreen — purchase history table', () => {
+  it('shows the shop name in the history table for each session item', async () => {
+    const now = new Date().toISOString()
+
+    await db.shops.add({ id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+    await db.items.add({ id: 'i1', name: 'Milk', version: 1, createdAt: now, updatedAt: now })
+    await db.shoppingSessions.add({ id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
+    await db.sessionItems.add({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'skipped', at: now })
+
+    renderItem('i1')
+
+    await waitFor(() => {
+      expect(screen.getByText('Lidl')).toBeInTheDocument()
+    })
+  })
+
+  it('shows the shop column header in the history table', async () => {
+    const now = new Date().toISOString()
+
+    await db.shops.add({ id: 's1', name: 'Aldi', color: '#0000ff', version: 1, updatedAt: now })
+    await db.items.add({ id: 'i1', name: 'Bread', version: 1, createdAt: now, updatedAt: now })
+    await db.shoppingSessions.add({ id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
+    await db.sessionItems.add({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'bought', at: now })
+
+    renderItem('i1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('columnheader', { name: 'Shop' })).toBeInTheDocument()
+    })
+  })
+})

@@ -1,8 +1,9 @@
 In new item dialog - Tags listed below the new tag textfield should be sorted by amount of tag usage accross all 
 items. Do not display numbers, just tags, but sort by these numbers
 
-Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem 
-tego sklepu
+When I have multiple items already added to my item catalogue, and then I add new shop. I will need to go one-by-one to every 
+item and update its shops list. I need to be able to do it in a new view - I should be able to open a shop page and mark items 
+which belong to that shop or remove them similarly as the shopping list itself works - adding items or crossing them out of the shop.
 
 In item repository view when I search for items - search box is at the bottom and my virtual phone keyboard moves 
 the search box up, just above the keyboard. That makes the results, which usually appear on the very top, to be 

@@ -5,7 +5,8 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi } from 'vitest'
 import ListScreen from './ListScreen'
 import { db } from '../db/schema'
-import type { Item, List, ListItem } from '../types'
+import { useStore } from '../store/useStore'
+import type { Item, List, ListItem, Shop } from '../types'
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -41,7 +42,14 @@ const makeListItem = (id: string, listId: string, itemId: string, overrides: Par
   ...overrides,
 })
 
+const makeShop = (id: string, overrides: Partial<Shop> = {}): Shop => ({
+  id, name: `Shop ${id}`, color: '#aabbcc', version: 1,
+  updatedAt: new Date().toISOString(),
+  ...overrides,
+})
+
 beforeEach(async () => {
+  useStore.setState({ shoppingModeShopId: null })
   await db.transaction('rw', [
     db.shops, db.items, db.tags, db.itemShops, db.itemTags,
     db.lists, db.listItems, db.listItemSkippedShops,
@@ -194,6 +202,149 @@ describe('ListScreen — quantity default when adding via search', () => {
     await waitFor(async () => {
       const listItems = await db.listItems.where('listId').equals('l1').toArray()
       expect(listItems).toHaveLength(1)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// purchase history recorded when buying in shopping mode
+// ---------------------------------------------------------------------------
+
+describe('ListScreen — purchase history', () => {
+  it('records a sessionItem when an item is marked bought in shopping mode', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const shop = makeShop('s1', { name: 'Supermarket' })
+    const item = makeItem('i1', { name: 'Milk', unit: 'l', defaultQuantity: 1 })
+    const li   = makeListItem('li1', 'l1', 'i1')
+
+    await db.lists.add(list)
+    await db.shops.add(shop)
+    await db.items.add(item)
+    await db.listItems.add(li)
+    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+
+    renderList('l1')
+
+    // Enter shopping mode by clicking the "Shop" button
+    const shopBtn = await screen.findByRole('button', { name: /^shop$/i })
+    await user.click(shopBtn)
+
+    // The item should now appear in shopping mode
+    const milkBtn = await screen.findByText('Milk')
+    await user.click(milkBtn)
+
+    // A sessionItem with action='bought' should be in the DB
+    await waitFor(async () => {
+      const sessionItems = await db.sessionItems.toArray()
+      expect(sessionItems).toHaveLength(1)
+      expect(sessionItems[0]!.itemId).toBe('i1')
+      expect(sessionItems[0]!.action).toBe('bought')
+    })
+  })
+
+  it('creates a shoppingSession linked to the active shop when buying', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const shop = makeShop('s1', { name: 'Supermarket' })
+    const item = makeItem('i1', { name: 'Bread' })
+    const li   = makeListItem('li1', 'l1', 'i1')
+
+    await db.lists.add(list)
+    await db.shops.add(shop)
+    await db.items.add(item)
+    await db.listItems.add(li)
+    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+
+    renderList('l1')
+
+    const shopBtn = await screen.findByRole('button', { name: /^shop$/i })
+    await user.click(shopBtn)
+
+    const breadBtn = await screen.findByText('Bread')
+    await user.click(breadBtn)
+
+    await waitFor(async () => {
+      const sessions = await db.shoppingSessions.toArray()
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0]!.shopId).toBe('s1')
+      expect(sessions[0]!.listId).toBe('l1')
+    })
+  })
+
+  it('records a sessionItem with action=skipped when an item is swiped/skipped in shopping mode', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const shop = makeShop('s1', { name: 'Supermarket' })
+    const item = makeItem('i1', { name: 'Eggs' })
+    const li   = makeListItem('li1', 'l1', 'i1')
+
+    await db.lists.add(list)
+    await db.shops.add(shop)
+    await db.items.add(item)
+    await db.listItems.add(li)
+    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+
+    renderList('l1')
+
+    const shopBtn = await screen.findByRole('button', { name: /^shop$/i })
+    await user.click(shopBtn)
+
+    // The skip button is not directly reachable via swipe in tests — the
+    // ShoppingCard renders an `onSkip` prop that gets called by the swipe handler.
+    // ListScreen passes `onSkip={() => void skipAtShop(li)}` for active items.
+    // We trigger it via the "Skip here" button that ListScreen wires as onSkip.
+    // In the DOM the card itself is a button that calls onBuy; skip is swipe-only.
+    // Instead we reach the skipAtShop path by directly triggering the store action
+    // that the component uses, or we can fire a pointer event sequence.
+    // Simplest: use fireEvent to simulate a complete left-swipe on the card.
+    const { fireEvent } = await import('@testing-library/react')
+    const card = await screen.findByText('Eggs')
+    fireEvent.touchStart(card.closest('button')!, { touches: [{ clientX: 200 }] })
+    fireEvent.touchMove(card.closest('button')!, { touches: [{ clientX: 100 }] }) // -100px delta > threshold(60)
+    fireEvent.touchEnd(card.closest('button')!)
+
+    await waitFor(async () => {
+      const sessionItems = await db.sessionItems.toArray()
+      expect(sessionItems).toHaveLength(1)
+      expect(sessionItems[0]!.itemId).toBe('i1')
+      expect(sessionItems[0]!.action).toBe('skipped')
+    })
+  })
+
+  it('reuses an existing open session instead of creating a duplicate', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const shop = makeShop('s1')
+    const item1 = makeItem('i1', { name: 'Milk' })
+    const item2 = makeItem('i2', { name: 'Bread' })
+    const li1   = makeListItem('li1', 'l1', 'i1')
+    const li2   = makeListItem('li2', 'l1', 'i2')
+
+    await db.lists.add(list)
+    await db.shops.add(shop)
+    await db.items.bulkAdd([item1, item2])
+    await db.listItems.bulkAdd([li1, li2])
+    await db.itemShops.bulkPut([
+      { itemId: 'i1', shopId: 's1' },
+      { itemId: 'i2', shopId: 's1' },
+    ])
+
+    renderList('l1')
+
+    const shopBtn = await screen.findByRole('button', { name: /^shop$/i })
+    await user.click(shopBtn)
+
+    // Buy first item
+    await user.click(await screen.findByText('Milk'))
+    // Buy second item
+    await user.click(await screen.findByText('Bread'))
+
+    await waitFor(async () => {
+      const sessions = await db.shoppingSessions.toArray()
+      expect(sessions).toHaveLength(1)   // only one session created
+      const sessionItems = await db.sessionItems.toArray()
+      expect(sessionItems).toHaveLength(2)
     })
   })
 })

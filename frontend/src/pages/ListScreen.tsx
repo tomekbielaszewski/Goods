@@ -1,7 +1,7 @@
 import { type FC, useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../db/schema'
-import { getListItemsWithItems, upsertListItem, skipShopForListItem, clearSkipForListItem } from '../db/queries'
+import { getListItemsWithItems, upsertListItem, skipShopForListItem, clearSkipForListItem, recordSessionItem } from '../db/queries'
 import { useStore } from '../store/useStore'
 import type { List, ListItemWithItem, ItemWithDetails, Shop, SortMode } from '../types'
 import ItemCard from '../components/ItemCard'
@@ -63,6 +63,20 @@ const ListScreen: FC = () => {
   const toggleItem = async (li: ListItemWithItem) => {
     const newState = li.state === 'active' ? 'bought' : 'active'
     await upsertListItem({ ...li, state: newState, updatedAt: new Date().toISOString(), version: li.version + 1 })
+
+    if (newState === 'bought' && shoppingModeShopId && id) {
+      const sessionId = await getOrCreateSession(id, shoppingModeShopId)
+      await recordSessionItem({
+        id: crypto.randomUUID(),
+        sessionId,
+        itemId: li.itemId,
+        action: 'bought',
+        quantity: li.quantity,
+        unit: li.unit ?? li.item.unit,
+        at: new Date().toISOString(),
+      })
+    }
+
     reload()
   }
 
@@ -77,8 +91,18 @@ const ListScreen: FC = () => {
   }
 
   const skipAtShop = async (li: ListItemWithItem) => {
-    if (!shoppingModeShopId) return
+    if (!shoppingModeShopId || !id) return
     await skipShopForListItem(li.id, shoppingModeShopId)
+    const sessionId = await getOrCreateSession(id, shoppingModeShopId)
+    await recordSessionItem({
+      id: crypto.randomUUID(),
+      sessionId,
+      itemId: li.itemId,
+      action: 'skipped',
+      quantity: li.quantity,
+      unit: li.unit ?? li.item.unit,
+      at: new Date().toISOString(),
+    })
     reload()
   }
 
@@ -231,6 +255,17 @@ const ListScreen: FC = () => {
       )}
     </div>
   )
+}
+
+async function getOrCreateSession(listId: string, shopId: string): Promise<string> {
+  const existing = await db.shoppingSessions
+    .where('listId').equals(listId)
+    .filter(s => s.shopId === shopId && !s.endedAt)
+    .first()
+  if (existing) return existing.id
+  const id = crypto.randomUUID()
+  await db.shoppingSessions.add({ id, listId, shopId, startedAt: new Date().toISOString(), version: 1 })
+  return id
 }
 
 function useSorted(items: ListItemWithItem[], mode: SortMode): ListItemWithItem[] {

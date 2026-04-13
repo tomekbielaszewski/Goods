@@ -31,6 +31,7 @@ const ItemDetailScreen: FC = () => {
   const [tags, setTags]             = useState<Tag[]>([])
   const [item, setItem]             = useState<ItemWithDetails | null>(null)
   const [history, setHistory]       = useState<SessionItem[]>([])
+  const [sessionShopMap, setSessionShopMap] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     db.shops.toArray().then(setShops)
@@ -49,7 +50,16 @@ const ItemDetailScreen: FC = () => {
         setSelectedTags(enriched.tags.map(t => t.id))
 
         const hist = await db.sessionItems.where('itemId').equals(id).sortBy('at')
-        setHistory([...hist].reverse().slice(0, 20))
+        const recent = [...hist].reverse().slice(0, 20)
+        setHistory(recent)
+
+        const sessionIds = [...new Set(recent.map(h => h.sessionId))]
+        const sessions = await db.shoppingSessions.bulkGet(sessionIds)
+        const map = new Map<string, string>()
+        for (const s of sessions) {
+          if (s) map.set(s.id, s.shopId)
+        }
+        setSessionShopMap(map)
       })
     }
   }, [id, isNew])
@@ -299,20 +309,30 @@ const ItemDetailScreen: FC = () => {
                       <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Date</th>
                       <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Qty</th>
                       <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Action</th>
+                      <th className="text-left px-2 py-1.5 text-gray-400 font-medium">Shop</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {history.map(h => (
-                      <tr key={h.id}>
-                        <td className="px-2 py-1.5 text-gray-300">{new Date(h.at).toLocaleDateString()}</td>
-                        <td className="px-2 py-1.5 text-gray-400">{h.quantity ?? '—'}{h.unit ?? ''}</td>
-                        <td className="px-2 py-1.5">
-                          <span className={`px-1.5 py-0.5 rounded text-xs ${h.action === 'bought' ? 'bg-green-900/50 text-green-400' : 'bg-orange-900/50 text-orange-400'}`}>
-                            {h.action}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {history.map(h => {
+                      const shopId = sessionShopMap.get(h.sessionId)
+                      const shop = shopId ? shopMap.get(shopId) : undefined
+                      return (
+                        <tr key={h.id}>
+                          <td className="px-2 py-1.5 text-gray-300">{new Date(h.at).toLocaleDateString()}</td>
+                          <td className="px-2 py-1.5 text-gray-400">{h.quantity ?? '—'}{h.unit ?? ''}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`px-1.5 py-0.5 rounded text-xs ${h.action === 'bought' ? 'bg-green-900/50 text-green-400' : 'bg-orange-900/50 text-orange-400'}`}>
+                              {h.action}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-400">
+                            {shop
+                              ? <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: shop.color }} />{shop.name}</span>
+                              : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
