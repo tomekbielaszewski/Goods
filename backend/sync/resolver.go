@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"grocery/models"
+	"groceries/models"
 )
 
 // IsConflict returns true when the same entity was modified on both client

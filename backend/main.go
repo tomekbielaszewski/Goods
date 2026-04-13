@@ -11,15 +11,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"grocery/db"
-	"grocery/handlers"
+	"groceries/db"
+	"groceries/handlers"
 )
 
 //go:embed all:frontend/dist
 var staticFiles embed.FS
 
 func main() {
-	dbPath := flag.String("db", "./grocery.db", "path to SQLite database file")
+	dbPath := flag.String("db", "./groceries.db", "path to SQLite database file")
 	port := flag.String("port", "8080", "HTTP listen port")
 	flag.Parse()
 

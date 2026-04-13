@@ -6,7 +6,7 @@ import type {
 } from '../types'
 import { normalizeTag } from '../utils/tagUtils'
 
-export class GroceryDB extends Dexie {
+export class GroceriesDB extends Dexie {
   shops!: Table<Shop, string>
   items!: Table<Item, string>
   tags!: Table<Tag, string>
@@ -78,4 +78,4 @@ export class GroceryDB extends Dexie {
   }
 }
 
-export const db = new GroceryDB()
+export const db = new GroceriesDB()

@@ -1,6 +1,6 @@
 # Groceries
 
-Offline-first grocery management app. Works fully in the browser after the first load — no internet required while
+Offline-first groceries management app. Works fully in the browser after the first load — no internet required while
 shopping. Syncs in the background when connectivity is available.
 
 ---
@@ -24,18 +24,18 @@ cd backend
 go mod tidy
 
 # Run the server (hot-reloads source on next request with go run)
-go run . --db ./grocery.db --port 8080
+go run . --db ./groceries.db --port 8080
 
 # Or build and run the binary
-go build -o grocery .
-./grocery --db ./grocery.db --port 8080
+go build -o groceries .
+./groceries --db ./groceries.db --port 8080
 ```
 
 Flags:
 
 | Flag     | Default        | Description                  |
 |----------|----------------|------------------------------|
-| `--db`   | `./grocery.db` | Path to SQLite database file |
+| `--db`   | `./groceries.db` | Path to SQLite database file |
 | `--port` | `8080`         | HTTP listen port             |
 
 The database file is created automatically on first run.
@@ -59,7 +59,7 @@ so both must be running simultaneously during development.
 
 ```bash
 # Terminal 1 — backend
-cd backend && go run . --db ./grocery.db
+cd backend && go run . --db ./groceries.db
 
 # Terminal 2 — frontend
 cd frontend && npm run dev
@@ -129,7 +129,7 @@ npx playwright show-report e2e/playwright-report
 
 The suite manages the Docker container lifecycle automatically:
 
-- **Setup** — builds the image, starts the container with an isolated DB at `/tmp/grocery-e2e`, and polls
+- **Setup** — builds the image, starts the container with an isolated DB at `/tmp/groceries-e2e`, and polls
   `/api/bootstrap` until ready (up to 60 s).
 - **Teardown** — runs `docker compose down --volumes` and removes the temp DB directory.
 

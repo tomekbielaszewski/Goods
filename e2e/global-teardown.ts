@@ -3,7 +3,7 @@ import { rmSync } from 'fs'
 import path from 'path'
 
 const ROOT = path.resolve(__dirname, '..')
-const E2E_DB_DIR = '/tmp/grocery-e2e'
+const E2E_DB_DIR = '/tmp/groceries-e2e'
 
 export default async function globalTeardown() {
   console.log('[global-teardown] Stopping Docker container…')

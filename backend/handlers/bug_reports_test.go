@@ -12,7 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
-	"grocery/handlers"
+	"groceries/handlers"
 )
 
 func newTestServerWithBugReports(t *testing.T) (*httptest.Server, *sql.DB) {

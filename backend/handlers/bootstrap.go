@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"grocery/models"
+	"groceries/models"
 )
 
 func Bootstrap(db *sql.DB) http.HandlerFunc {

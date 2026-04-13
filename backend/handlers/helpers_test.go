@@ -11,9 +11,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
-	appdb "grocery/db"
-	"grocery/handlers"
-	"grocery/models"
+	appdb "groceries/db"
+	"groceries/handlers"
+	"groceries/models"
 )
 
 // newTestDB opens an in-memory SQLite database, applies the schema, and

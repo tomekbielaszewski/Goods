@@ -1,8 +1,8 @@
-# Grocery App — Requirements
+# groceries — Requirements
 
 ## Vision
 
-A web-based grocery management app. After the initial page load no internet connection is required — all state lives in 
+A web-based groceries management app. After the initial page load no internet connection is required — all state lives in 
 the browser (localStorage / IndexedDB). Single-user. Fast, compact, Material-inspired UI optimised for use on a phone while standing in a supermarket aisle.
 
 ---

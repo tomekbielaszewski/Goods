@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'fs'
 import path from 'path'
 
 const ROOT = path.resolve(__dirname, '..')
-const E2E_DB_DIR = '/tmp/grocery-e2e'
+const E2E_DB_DIR = '/tmp/groceries-e2e'
 const BASE_URL = 'http://localhost:8080'
 
 async function waitForReady(url: string, timeoutMs = 60_000): Promise<void> {

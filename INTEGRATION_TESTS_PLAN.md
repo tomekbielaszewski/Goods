@@ -19,7 +19,7 @@ e2e/
 ├── global-setup.ts            # docker compose up --build; wait for /api/bootstrap
 ├── global-teardown.ts         # docker compose down; remove test DB volume
 ├── fixtures/
-│   └── grocery.ts             # extended Page fixture with helper methods
+│   └── groceries.ts             # extended Page fixture with helper methods
 ├── api/
 │   ├── bootstrap.spec.ts      # GET /api/bootstrap
 │   └── sync.spec.ts           # POST /api/sync
@@ -38,7 +38,7 @@ e2e/
 
 ### Container lifecycle (`global-setup.ts`)
 
-1. Generate a temp DB path: `/tmp/grocery-e2e-<timestamp>.db`
+1. Generate a temp DB path: `/tmp/groceries-e2e-<timestamp>.db`
 2. `docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build`
     - The e2e override mounts the temp DB path instead of `./`
 3. Poll `GET http://localhost:8080/api/bootstrap` every 500 ms, up to 30 s
@@ -48,9 +48,9 @@ e2e/
 
 ```yaml
 services:
-  grocery:
+  groceries:
     volumes:
-      - /tmp/grocery-e2e:/data   # fresh DB, not the dev one
+      - /tmp/groceries-e2e:/data   # fresh DB, not the dev one
     ports:
       - "8080:8080"
 ```
@@ -158,12 +158,12 @@ app in a known state before each `test()`.
 
 ---
 
-## Fixtures (`fixtures/grocery.ts`)
+## Fixtures (`fixtures/groceries.ts`)
 
 Shared helpers available in every test via Playwright's `test.extend`:
 
 ```ts
-interface GroceryFixtures {
+interface GroceriesFixtures {
     // Seed entities directly via API (bypass UI for speed)
     seedViaApi(data: Partial<SyncChanges>): Promise<void>
 

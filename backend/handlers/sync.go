@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"grocery/models"
-	gsync "grocery/sync"
-	"grocery/strutil"
+	"groceries/models"
+	gsync "groceries/sync"
+	"groceries/strutil"
 )
 
 func Sync(db *sql.DB) http.HandlerFunc {

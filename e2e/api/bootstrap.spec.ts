@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { resetViaApi, seedViaApi } from '../fixtures/grocery'
+import { resetViaApi, seedViaApi } from '../fixtures/groceries'
 
 const ALL_ARRAY_KEYS = [
   'shops', 'items', 'tags', 'itemShops', 'itemTags',

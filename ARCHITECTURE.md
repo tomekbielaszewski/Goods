@@ -1,4 +1,4 @@
-# Grocery App — Architecture
+# groceries — Architecture
 
 ## Stack
 
@@ -25,7 +25,7 @@
 │   │   └── queries.sql          # sqlc-generated or hand-written
 │   ├── handlers/
 │   ├── sync/                    # sync + conflict resolution logic
-│   └── grocery.db               # runtime SQLite file (gitignored)
+│   └── groceries.db               # runtime SQLite file (gitignored)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -299,30 +299,30 @@ COPY backend/go.* ./
 RUN go mod download
 COPY backend/ ./
 COPY --from=frontend /app/frontend/dist ./frontend/dist
-RUN go build -o grocery .
+RUN go build -o groceries .
 
 # Stage 3: minimal runtime image
 FROM alpine:3.20
 WORKDIR /app
-COPY --from=backend /app/grocery .
+COPY --from=backend /app/groceries .
 EXPOSE 8080
-CMD ["./grocery", "--db", "/data/grocery.db", "--port", "8080"]
+CMD ["./groceries", "--db", "/data/groceries.db", "--port", "8080"]
 ```
 
 **docker-compose.yml** (excerpt):
 
 ```yaml
 services:
-  grocery:
+  groceries:
     build: .
     ports:
       - "8080:8080"
     volumes:
-      - /srv/grocery:/data     # host path → SQLite lives here
+      - /srv/groceries:/data     # host path → SQLite lives here
     restart: unless-stopped
 ```
 
-**Backup**: daily `cp /srv/grocery/grocery.db /srv/grocery/backups/grocery-$(date +%F).db` via cron; SQLite's WAL mode ensures consistent copies without locking.
+**Backup**: daily `cp /srv/groceries/groceries.db /srv/groceries/backups/groceries-$(date +%F).db` via cron; SQLite's WAL mode ensures consistent copies without locking.
 
 ---
 

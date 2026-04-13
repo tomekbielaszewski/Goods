@@ -1,4 +1,4 @@
-# Grocery App — Frontend Layout
+# groceries — Frontend Layout
 
 ## Views
 

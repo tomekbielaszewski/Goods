@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"grocery/strutil"
+	"groceries/strutil"
 )
 
 //go:embed schema.sql

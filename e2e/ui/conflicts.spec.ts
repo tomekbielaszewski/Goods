@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/grocery'
-import { seedViaApi as apiSeed } from '../fixtures/grocery'
+import { test, expect } from '../fixtures/groceries'
+import { seedViaApi as apiSeed } from '../fixtures/groceries'
 
 /**
  * Creates a conflict scenario:

@@ -90,7 +90,7 @@ export async function resetViaApi(): Promise<void> {
 
 // ─── Fixture interface ───────────────────────────────────────────────────────
 
-interface GroceryFixtures {
+interface GroceriesFixtures {
   /** POST /api/sync to seed server-side state */
   seedViaApi: (data: Partial<SyncChanges>, lastSyncedAt?: string) => Promise<SyncResponse>
   /** Soft-delete every visible entity via API (clean-slate helper) */
@@ -108,7 +108,7 @@ interface GroceryFixtures {
 
 // ─── Extended test ───────────────────────────────────────────────────────────
 
-export const test = base.extend<GroceryFixtures>({
+export const test = base.extend<GroceriesFixtures>({
   seedViaApi: async ({}, use) => {
     await use(seedViaApi)
   },

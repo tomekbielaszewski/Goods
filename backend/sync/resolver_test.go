@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"grocery/models"
-	gsync "grocery/sync"
+	"groceries/models"
+	gsync "groceries/sync"
 )
 
 // ---------------------------------------------------------------------------

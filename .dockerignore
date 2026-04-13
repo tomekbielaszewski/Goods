@@ -1,7 +1,7 @@
 frontend/node_modules
 frontend/dist
 backend/frontend/dist
-backend/grocery
+backend/groceries
 *.db
 *.db-wal
 *.db-shm

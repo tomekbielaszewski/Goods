@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { resetViaApi, seedViaApi } from '../fixtures/grocery'
-import type { Shop, Item, List, ListItem } from '../fixtures/grocery'
+import { resetViaApi, seedViaApi } from '../fixtures/groceries'
+import type { Shop, Item, List, ListItem } from '../fixtures/groceries'
 
 function now() { return new Date().toISOString() }
 function past(msAgo = 60_000) { return new Date(Date.now() - msAgo).toISOString() }

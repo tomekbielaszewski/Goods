@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/grocery'
+import { test, expect } from '../fixtures/groceries'
 
 test.describe('Offline behaviour', () => {
   test.beforeEach(async ({ resetViaApi }) => {

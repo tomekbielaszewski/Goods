@@ -1,4 +1,4 @@
-module grocery
+module groceries
 
 go 1.25.0
 

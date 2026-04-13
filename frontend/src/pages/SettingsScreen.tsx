@@ -174,9 +174,7 @@ const SettingsScreen: FC = () => {
 
       <section>
         <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-2">About</h2>
-        <div className="px-3 py-2 bg-card border border-border rounded-md text-xs text-gray-500">
-          Grocery v0.1.0 — offline-first grocery management
-        </div>
+        <div className="px-3 py-2 bg-card border border-border rounded-md text-xs text-gray-500">Groceries v0.1.0 — offline-first groceries management</div>
       </section>
     </div>
   )
