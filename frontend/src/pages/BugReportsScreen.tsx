@@ -76,7 +76,7 @@ const BugReportsScreen: FC = () => {
 
       {!loading && !error && reports.length > 0 && (
         <div className="space-y-2">
-          {reports.map(report => (
+          {[...reports].sort((a, b) => (a.resolved_at ? 1 : 0) - (b.resolved_at ? 1 : 0)).map(report => (
             <div
               key={report.id}
               className={`flex items-start gap-3 px-3 py-2.5 bg-card border rounded-md ${report.resolved_at ? 'border-border opacity-50' : 'border-border'}`}
