@@ -4,11 +4,8 @@ items. Do not display numbers, just tags, but sort by these numbers
 Change the name of the application to "Groceries" instead of "Grocery", and link Github repo in about section: 
 https://github.com/tomekbielaszewski/groceries
 
-When I set kilograms (kg) as a item unit - the default value will be 1. In shopping list view I Kiedy ustawiam wagę 
-w kg to domyślnie ustawić 1kg ale jak chce w podglądzie listy zmniejszyć to nie ma sensu ustawiać 0kg. Wtedy 
-zmniejszać do 0.75, 0.5, 0.25, 0.1. I właśnie końcowe 0.1kg ma być minimum dostepnym
-
-Jak ustawiam wagę w gramach to ciężko ustawić na przykład 500g. Inkrementuj po 100g
+When I set weight in grams it is hard to set meaningful values. Increment/decrement by 50g by default. Below 100g follow 
+similar strategy as for kilograms: 100g -> 75g -> 50g -> 25g -> 10g as a minimum. The same goes with milliliters.
 
 Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem 
 tego sklepu

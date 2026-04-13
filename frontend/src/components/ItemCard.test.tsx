@@ -179,6 +179,240 @@ describe('ItemCard — browse mode', () => {
   })
 })
 
+// ── Browse mode — sub-1 quantity steps for kg and l ───────────────────────────
+
+describe('ItemCard — browse mode — sub-1 quantity steps', () => {
+  const renderBrowse = (qty: number | undefined, unit: string, onQuantityChange = vi.fn()) => {
+    const listItem = makeListItem({ quantity: qty, unit })
+    render(
+      <ItemCard
+        mode="browse"
+        listItem={listItem}
+        shops={shops}
+        onToggle={() => {}}
+        onRemove={() => {}}
+        onQuantityChange={onQuantityChange}
+      />
+    )
+    return { onQuantityChange }
+  }
+
+  it('decrement from 1kg goes to 0.75', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(1, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.75, 'kg')
+  })
+
+  it('decrement from 0.75kg goes to 0.5', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.75, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.5, 'kg')
+  })
+
+  it('decrement from 0.5kg goes to 0.25', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.5, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.25, 'kg')
+  })
+
+  it('decrement from 0.25kg goes to 0.1', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.25, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.1, 'kg')
+  })
+
+  it('decrement from 0.1kg does nothing (minimum)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.1, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).not.toHaveBeenCalled()
+  })
+
+  it('decrement from 1l goes to 0.75', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(1, 'l')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.75, 'l')
+  })
+
+  it('decrement from 0.1l does nothing (minimum)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.1, 'l')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).not.toHaveBeenCalled()
+  })
+
+  it('increment from 0.1kg goes to 0.25', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.1, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.25, 'kg')
+  })
+
+  it('increment from 0.25kg goes to 0.5', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.25, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.5, 'kg')
+  })
+
+  it('increment from 0.5kg goes to 0.75', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.5, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(0.75, 'kg')
+  })
+
+  it('increment from 0.75kg goes to 1', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(0.75, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(1, 'kg')
+  })
+
+  it('decrement from 2kg still goes to 1 (normal integer step)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(2, 'kg')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(1, 'kg')
+  })
+
+  it('non-sub-one unit (pcs) clears when decrementing from 1', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(1, 'pcs')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(undefined, 'pcs')
+  })
+})
+
+// ── Browse mode — g and ml quantity steps ─────────────────────────────────────
+
+describe('ItemCard — browse mode — g and ml quantity steps', () => {
+  const renderBrowse = (qty: number | undefined, unit: string, onQuantityChange = vi.fn()) => {
+    const listItem = makeListItem({ quantity: qty, unit })
+    render(
+      <ItemCard
+        mode="browse"
+        listItem={listItem}
+        shops={shops}
+        onToggle={() => {}}
+        onRemove={() => {}}
+        onQuantityChange={onQuantityChange}
+      />
+    )
+    return { onQuantityChange }
+  }
+
+  it('increment from 100g goes to 150g (50g step)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(100, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(150, 'g')
+  })
+
+  it('decrement from 150g goes to 100g (50g step)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(150, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(100, 'g')
+  })
+
+  it('decrement from 100g goes to 75g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(100, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(75, 'g')
+  })
+
+  it('decrement from 75g goes to 50g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(75, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(50, 'g')
+  })
+
+  it('decrement from 50g goes to 25g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(50, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(25, 'g')
+  })
+
+  it('decrement from 25g goes to 10g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(25, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(10, 'g')
+  })
+
+  it('decrement from 10g does nothing (minimum)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(10, 'g')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).not.toHaveBeenCalled()
+  })
+
+  it('increment from 10g goes to 25g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(10, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(25, 'g')
+  })
+
+  it('increment from 25g goes to 50g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(25, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(50, 'g')
+  })
+
+  it('increment from 50g goes to 75g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(50, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(75, 'g')
+  })
+
+  it('increment from 75g goes to 100g', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(75, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(100, 'g')
+  })
+
+  it('increment from 100g goes to 150g (back to 50g steps)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(100, 'g')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(150, 'g')
+  })
+
+  it('decrement from 100ml goes to 75ml', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(100, 'ml')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(75, 'ml')
+  })
+
+  it('decrement from 10ml does nothing (minimum)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(10, 'ml')
+    await user.click(screen.getByRole('button', { name: 'Decrease quantity' }))
+    expect(onQuantityChange).not.toHaveBeenCalled()
+  })
+
+  it('increment from 200ml goes to 250ml (50ml step)', async () => {
+    const user = userEvent.setup()
+    const { onQuantityChange } = renderBrowse(200, 'ml')
+    await user.click(screen.getByRole('button', { name: 'Increase quantity' }))
+    expect(onQuantityChange).toHaveBeenCalledWith(250, 'ml')
+  })
+})
+
 // ── Shopping mode ─────────────────────────────────────────────────────────────
 
 describe('ItemCard — shopping mode', () => {

@@ -68,6 +68,17 @@ const RepositoryCard: FC<RepositoryCardProps> = ({ item, onClick }) => (
 )
 
 // ── Browse ───────────────────────────────────────────────────────────────────
+
+// kg / l: sub-one fractional steps, integer steps above
+const KG_L_SUB_STEPS = [0.1, 0.25, 0.5, 0.75, 1]
+const isKgL = (u: string) => u === 'kg' || u === 'l'
+const findKgLIdx = (v: number) => KG_L_SUB_STEPS.findIndex(s => Math.abs(s - v) < 0.001)
+
+// g / ml: sub-100 fine steps, 50-unit steps above
+const G_ML_SUB_STEPS = [10, 25, 50, 75, 100]
+const isGMl = (u: string) => u === 'g' || u === 'ml'
+const findGMlIdx = (v: number) => G_ML_SUB_STEPS.findIndex(s => Math.abs(s - v) < 0.1)
+
 const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuantityChange, onClick }) => {
   const bought = listItem.state === 'bought'
   const unit = listItem.unit ?? listItem.item.unit ?? ''
@@ -78,13 +89,32 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuant
 
   const increment = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const next = (qty ?? 0) + 1
-    onQuantityChange(next, unit || undefined)
+    if (isKgL(unit) && qty != null && qty < 1) {
+      const idx = findKgLIdx(qty)
+      onQuantityChange(idx !== -1 && idx < KG_L_SUB_STEPS.length - 1 ? KG_L_SUB_STEPS[idx + 1] : 1, unit || undefined)
+    } else if (isGMl(unit) && qty != null && qty < 100) {
+      const idx = findGMlIdx(qty)
+      onQuantityChange(idx !== -1 && idx < G_ML_SUB_STEPS.length - 1 ? G_ML_SUB_STEPS[idx + 1] : 100, unit || undefined)
+    } else if (isGMl(unit)) {
+      onQuantityChange((qty ?? 0) + 50, unit || undefined)
+    } else {
+      onQuantityChange((qty ?? 0) + 1, unit || undefined)
+    }
   }
 
   const decrement = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (qty == null || qty <= 1) {
+    if (isKgL(unit) && qty != null && qty <= 1) {
+      const idx = findKgLIdx(qty)
+      if (idx <= 0) return
+      onQuantityChange(KG_L_SUB_STEPS[idx - 1], unit || undefined)
+    } else if (isGMl(unit) && qty != null && qty <= 100) {
+      const idx = findGMlIdx(qty)
+      if (idx <= 0) return
+      onQuantityChange(G_ML_SUB_STEPS[idx - 1], unit || undefined)
+    } else if (isGMl(unit) && qty != null) {
+      onQuantityChange(qty - 50, unit || undefined)
+    } else if (qty == null || qty <= 1) {
       onQuantityChange(undefined, unit || undefined)
     } else {
       onQuantityChange(qty - 1, unit || undefined)
