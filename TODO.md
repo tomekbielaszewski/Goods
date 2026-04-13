@@ -10,3 +10,5 @@ Jak ustawiam wagę w gramach to ciężko ustawić na przykład 500g. Inkrementuj
 Mozliwosc dodania itemów do sklepu. Otwieram podgląd sklepu i tam mogę masowo dodać lub usunąć itemki z oznaczeniem tego sklepu
 
 In item repository view when I search for items - search box is at the bottom and my virtual phone keyboard moves the search box up, just above the keyboard. That makes the results, which usually appear on the very top, to be moved out of the view.
+
+Update readme: remove stack, but keep requirements (move it to the bottom - requirements for development or something), remove proejct structure, from Testing remove all examples below the `go test ./...`, remove coverage, remove the build for production section - its already covered by the dockerfile, remove the whole deployment section, update the API reference to the latest state based on code, remove the Key design decisions
