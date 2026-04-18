@@ -1,7 +1,7 @@
 import { type FC, useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { db } from '../db/schema'
-import { upsertItem, getItemWithDetails } from '../db/queries'
+import { upsertItem, upsertListItem, getItemWithDetails } from '../db/queries'
 import type { Shop, Tag, ItemWithDetails, SessionItem } from '../types'
 import ShopDot from '../components/ShopDot'
 import TagBadge from '../components/TagBadge'
@@ -74,12 +74,14 @@ const ItemDetailScreen: FC = () => {
     const now = new Date().toISOString()
     const itemId = isNew ? crypto.randomUUID() : id!
     const parsedQty = Math.max(1, Number(defaultQuantity) || 1)
+    const newUnit = unit || undefined
+    const oldUnit = item?.unit
 
     await upsertItem(
       {
         id: itemId,
         name: name.trim(),
-        unit: unit || undefined,
+        unit: newUnit,
         defaultQuantity: parsedQty,
         description: description || undefined,
         notes: notes || undefined,
@@ -90,6 +92,17 @@ const ItemDetailScreen: FC = () => {
       selectedShops,
       selectedTags,
     )
+
+    // Cascade unit change to list items that still carry the old default unit.
+    // List items with a user-overridden unit (different from the old default) are left untouched.
+    if (!isNew && oldUnit !== newUnit) {
+      const affected = await db.listItems.where('itemId').equals(itemId).toArray()
+      await Promise.all(
+        affected
+          .filter(li => li.unit === oldUnit)
+          .map(li => upsertListItem({ ...li, unit: newUnit, updatedAt: now, version: li.version + 1 }))
+      )
+    }
 
     // If coming from list add flow, add to that list
     const listId = searchParams.get('listId')

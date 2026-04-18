@@ -258,6 +258,62 @@ describe('ItemDetailScreen — default amount field', () => {
 })
 
 // ---------------------------------------------------------------------------
+// unit change cascades to list items
+// ---------------------------------------------------------------------------
+
+describe('ItemDetailScreen — unit change cascades to list items', () => {
+  it('updates listItem unit when the item default unit is changed', async () => {
+    const now = new Date().toISOString()
+    const user = userEvent.setup()
+
+    await db.items.add({ id: 'i1', name: 'Flour', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
+    await db.listItems.add({ id: 'li1', listId: 'list1', itemId: 'i1', state: 'active', quantity: 1, unit: 'kg', version: 1, addedAt: now, updatedAt: now })
+
+    renderItem('i1')
+
+    // Wait for the item to load and the unit input to show 'kg'
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText('or type custom…') as HTMLInputElement).value).toBe('kg')
+    })
+
+    // Change unit from 'kg' to 'g' by clicking the 'g' chip
+    await user.click(screen.getByRole('button', { name: 'g' }))
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    // The listItem that snapshotted the old unit should be updated
+    await waitFor(async () => {
+      const updated = await db.listItems.get('li1')
+      expect(updated?.unit).toBe('g')
+    })
+  })
+
+  it('does not touch listItems whose unit was explicitly overridden', async () => {
+    const now = new Date().toISOString()
+    const user = userEvent.setup()
+
+    await db.items.add({ id: 'i2', name: 'Sugar', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
+    // This list item has a user-chosen unit 'bag' — different from item default 'kg'
+    await db.listItems.add({ id: 'li2', listId: 'list1', itemId: 'i2', state: 'active', quantity: 1, unit: 'bag', version: 1, addedAt: now, updatedAt: now })
+
+    renderItem('i2')
+
+    await waitFor(() => {
+      expect((screen.getByPlaceholderText('or type custom…') as HTMLInputElement).value).toBe('kg')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'g' }))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    // Unit 'bag' was not the old default, so it must not be changed
+    await waitFor(async () => {
+      const untouched = await db.listItems.get('li2')
+      expect(untouched?.unit).toBe('bag')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // purchase history table
 // ---------------------------------------------------------------------------
 
