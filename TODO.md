@@ -7,3 +7,5 @@ which belong to that shop or remove them similarly as the shopping list itself w
 
 create prometheus metrics endpoint containing: processing time per endpoint, amount of bytes sent, errors and success requests, golang metrics like memory, cpu etc. Anything what I have missed?
 
+Starting from shopping list edit view when I open an item details page and I remove that item completely it still appears on the shopping list
+

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useStore } from './useStore'
+import type { SortMode } from '../types'
 
 // Reset the store state between tests
 const resetStore = () =>
@@ -118,6 +119,26 @@ describe('useStore — sortModes', () => {
     useStore.getState().setSortMode('list-1', 'date')
     useStore.getState().setSortMode('list-1', 'frequency')
     expect(useStore.getState().sortModes['list-1']).toBe('frequency')
+  })
+})
+
+describe('useStore — sortModes localStorage persistence', () => {
+  it('setSortMode writes sortModes to localStorage', () => {
+    useStore.getState().setSortMode('list-1', 'name')
+    expect(JSON.parse(localStorage.getItem('sortModes') ?? '{}')).toEqual({ 'list-1': 'name' })
+  })
+
+  it('setSortMode accumulates multiple lists in localStorage', () => {
+    useStore.getState().setSortMode('list-1', 'name')
+    useStore.getState().setSortMode('list-2', 'frequency')
+    expect(JSON.parse(localStorage.getItem('sortModes') ?? '{}')).toEqual({ 'list-1': 'name', 'list-2': 'frequency' })
+  })
+
+  it('sortModes reads from localStorage on init', () => {
+    const stored = { 'list-abc': 'tag' as SortMode }
+    localStorage.setItem('sortModes', JSON.stringify(stored))
+    useStore.setState({ sortModes: JSON.parse(localStorage.getItem('sortModes') ?? '{}') })
+    expect(useStore.getState().sortModes['list-abc']).toBe('tag')
   })
 })
 
