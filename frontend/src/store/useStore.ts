@@ -30,7 +30,7 @@ export const useStore = create<AppStore>((set) => ({
   conflicts: [],
   lastSyncedAt: localStorage.getItem('lastSyncedAt'),
   shoppingModeShopId: null,
-  sortModes: {},
+  sortModes: JSON.parse(localStorage.getItem('sortModes') ?? '{}') as Record<string, SortMode>,
 
   setSyncStatus: (syncStatus) => set(state => ({
     syncStatus,
@@ -57,5 +57,9 @@ export const useStore = create<AppStore>((set) => ({
   exitShoppingMode: () => set({ shoppingModeShopId: null }),
 
   setSortMode: (listId, mode) =>
-    set(state => ({ sortModes: { ...state.sortModes, [listId]: mode } })),
+    set(state => {
+      const sortModes = { ...state.sortModes, [listId]: mode }
+      localStorage.setItem('sortModes', JSON.stringify(sortModes))
+      return { sortModes }
+    }),
 }))
