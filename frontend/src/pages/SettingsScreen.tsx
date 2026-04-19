@@ -76,6 +76,7 @@ const SettingsScreen: FC = () => {
             <div key={shop.id} className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-md">
               <ShopDot color={shop.color} />
               <span className="flex-1 text-sm text-gray-200">{shop.name}</span>
+              <button onClick={() => navigate(`/shop/${shop.id}`)} className="text-xs text-gray-500 hover:text-gray-200 px-1.5 py-0.5 transition-colors">Items</button>
               <button onClick={() => startEdit(shop)} className="text-xs text-gray-500 hover:text-gray-200 px-1.5 py-0.5 transition-colors">Edit</button>
               <button onClick={() => void deleteShop(shop.id)} aria-label="Delete shop" className="text-gray-600 hover:text-red-400 transition-colors">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

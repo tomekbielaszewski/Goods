@@ -170,6 +170,27 @@ export async function recordSessionItem(si: SessionItem): Promise<void> {
   await db.sessionItems.put(si)
 }
 
+export async function getItemsForShop(shopId: string): Promise<ItemWithDetails[]> {
+  const itemShops = await db.itemShops.where('shopId').equals(shopId).toArray()
+  const itemIds = itemShops.map(is => is.itemId)
+  const items = (await db.items.bulkGet(itemIds)).filter((i): i is Item => i != null && !i.deletedAt)
+  return enrichItems(items)
+}
+
+export async function addItemToShop(itemId: string, shopId: string): Promise<void> {
+  await db.transaction('rw', [db.itemShops, db.pendingSyncIds], async () => {
+    await db.itemShops.put({ itemId, shopId })
+    await db.pendingSyncIds.put({ id: itemId, entity: 'item', changedAt: new Date().toISOString() })
+  })
+}
+
+export async function removeItemFromShop(itemId: string, shopId: string): Promise<void> {
+  await db.transaction('rw', [db.itemShops, db.pendingSyncIds], async () => {
+    await db.itemShops.delete([itemId, shopId])
+    await db.pendingSyncIds.put({ id: itemId, entity: 'item', changedAt: new Date().toISOString() })
+  })
+}
+
 export async function isEmpty(): Promise<boolean> {
   const count = await db.items.count()
   return count === 0
