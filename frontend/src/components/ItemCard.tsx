@@ -134,7 +134,7 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuant
 
       {/* Name + qty/unit stepper below */}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
-        <span className={`text-sm font-medium truncate block ${bought ? 'line-through text-gray-500' : 'text-gray-100'}`}>
+        <span className={`text-sm font-medium truncate block ${bought ? 'text-gray-500' : 'text-gray-100'}`}>
           {listItem.item.name}
         </span>
         {!bought && (
