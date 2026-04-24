@@ -118,15 +118,16 @@ describe('ItemCard — browse mode', () => {
     expect(checkbox).toHaveClass('bg-blue-600')
   })
 
-  it('renders crossed-out name when state is bought', () => {
+  it('renders faded name when state is bought', () => {
     render(
       <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )
     const nameEl = screen.getByText('Whole Milk')
-    expect(nameEl).toHaveClass('line-through')
+    expect(nameEl).not.toHaveClass('line-through')
+    expect(nameEl).toHaveClass('text-gray-500')
   })
 
-  it('name is not crossed out when state is active', () => {
+  it('name is not faded when state is active', () => {
     render(
       <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
     )

@@ -18,19 +18,22 @@ const SuggestionsPanel: FC<SuggestionsPanelProps> = ({ listId, refresh, onAdd })
   if (items.length === 0) return null
 
   return (
-    <div className="flex gap-1.5 overflow-x-auto py-1 scrollbar-none">
-      {items.map(item => (
-        <button
-          key={item.id}
-          onClick={() => onAdd(item)}
-          className="flex-shrink-0 text-xs px-2.5 py-1 rounded-full border border-border text-gray-300 hover:border-blue-500 hover:text-blue-400 transition-colors whitespace-nowrap"
-        >
-          {item.name}
-          {item.frequency > 0 && (
-            <span className="ml-1 text-gray-500">{item.frequency}×</span>
-          )}
-        </button>
-      ))}
+    <div className="pt-1">
+      <div className="text-xs text-gray-500 pb-1">Not added</div>
+      <div className="space-y-1">
+        {items.map(item => (
+          <button
+            key={item.id}
+            onClick={() => onAdd(item)}
+            className="w-full flex items-center justify-between px-3 py-2 bg-card border border-border rounded-md hover:border-blue-500 transition-colors text-left"
+          >
+            <span className="text-sm font-medium text-gray-300 truncate">{item.name}</span>
+            {item.frequency > 0 && (
+              <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{item.frequency}×</span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
