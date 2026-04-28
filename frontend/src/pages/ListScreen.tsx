@@ -215,7 +215,6 @@ const ListScreen: FC = () => {
                 mode="browse"
                 listItem={li}
                 shops={shops}
-                onToggle={() => void toggleItem(li)}
                 onRemove={() => void removeItem(li)}
                 onQuantityChange={(qty, unit) => void updateQuantity(li, qty, unit)}
                 onClick={() => navigate(`/item/${li.itemId}`)}
@@ -230,7 +229,6 @@ const ListScreen: FC = () => {
                     mode="browse"
                     listItem={li}
                     shops={shops}
-                    onToggle={() => void toggleItem(li)}
                     onRemove={() => void removeItem(li)}
                     onQuantityChange={(qty, unit) => void updateQuantity(li, qty, unit)}
                     onClick={() => navigate(`/item/${li.itemId}`)}

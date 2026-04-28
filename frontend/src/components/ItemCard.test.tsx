@@ -101,21 +101,21 @@ describe('ItemCard — browse mode', () => {
     expect(screen.getByText('Whole Milk')).toBeInTheDocument()
   })
 
-  it('renders unchecked checkbox when state is active', () => {
-    render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
+  it('renders unchecked state indicator when state is active', () => {
+    const { container } = render(
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'active' })} shops={shops} onRemove={() => {}} onQuantityChange={() => {}} />
     )
-    const checkbox = screen.getByRole('button', { name: 'Mark bought' })
-    expect(checkbox).toBeInTheDocument()
-    expect(checkbox).not.toHaveClass('bg-blue-600')
+    const indicator = container.querySelector('.rounded.border.flex-shrink-0')
+    expect(indicator).toBeInTheDocument()
+    expect(indicator).not.toHaveClass('bg-blue-600')
   })
 
-  it('renders checked checkbox when state is bought', () => {
-    render(
-      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onToggle={() => {}} onRemove={() => {}} onQuantityChange={() => {}} />
+  it('renders checked state indicator when state is bought', () => {
+    const { container } = render(
+      <ItemCard mode="browse" listItem={makeListItem({ state: 'bought' })} shops={shops} onRemove={() => {}} onQuantityChange={() => {}} />
     )
-    const checkbox = screen.getByRole('button', { name: 'Mark active' })
-    expect(checkbox).toHaveClass('bg-blue-600')
+    const indicator = container.querySelector('.rounded.border.flex-shrink-0')
+    expect(indicator).toHaveClass('bg-blue-600')
   })
 
   it('renders faded name when state is bought', () => {
@@ -133,16 +133,6 @@ describe('ItemCard — browse mode', () => {
     )
     const nameEl = screen.getByText('Whole Milk')
     expect(nameEl).not.toHaveClass('line-through')
-  })
-
-  it('calls onToggle when checkbox is clicked', async () => {
-    const user = userEvent.setup()
-    const onToggle = vi.fn()
-    render(
-      <ItemCard mode="browse" listItem={makeListItem()} shops={shops} onToggle={onToggle} onRemove={() => {}} onQuantityChange={() => {}} />
-    )
-    await user.click(screen.getByRole('button', { name: 'Mark bought' }))
-    expect(onToggle).toHaveBeenCalledOnce()
   })
 
   it('calls onRemove when × button is clicked', async () => {
@@ -190,8 +180,7 @@ describe('ItemCard — browse mode — sub-1 quantity steps', () => {
         mode="browse"
         listItem={listItem}
         shops={shops}
-        onToggle={() => {}}
-        onRemove={() => {}}
+               onRemove={() => {}}
         onQuantityChange={onQuantityChange}
       />
     )
@@ -300,8 +289,7 @@ describe('ItemCard — browse mode — g and ml quantity steps', () => {
         mode="browse"
         listItem={listItem}
         shops={shops}
-        onToggle={() => {}}
-        onRemove={() => {}}
+               onRemove={() => {}}
         onQuantityChange={onQuantityChange}
       />
     )
