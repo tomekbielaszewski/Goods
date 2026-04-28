@@ -15,7 +15,6 @@ interface BrowseCardProps {
   mode: 'browse'
   listItem: ListItemWithItem
   shops: { id: string; name: string; color: string }[]
-  onToggle: () => void
   onRemove: () => void
   onQuantityChange: (qty: number | undefined, unit: string | undefined) => void
   onClick?: () => void
@@ -79,7 +78,7 @@ const G_ML_SUB_STEPS = [10, 25, 50, 75, 100]
 const isGMl = (u: string) => u === 'g' || u === 'ml'
 const findGMlIdx = (v: number) => G_ML_SUB_STEPS.findIndex(s => Math.abs(s - v) < 0.1)
 
-const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuantityChange, onClick }) => {
+const BrowseCard: FC<BrowseCardProps> = ({ listItem, onRemove, onQuantityChange, onClick }) => {
   const bought = listItem.state === 'bought'
   const unit = listItem.unit ?? listItem.item.unit ?? ''
   const qty  = listItem.quantity != null ? listItem.quantity : undefined
@@ -123,14 +122,12 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, onToggle, onRemove, onQuant
 
   return (
     <div className={`flex items-center gap-2 px-3 py-2 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'}`}>
-      {/* Checkbox */}
-      <button
-        onClick={onToggle}
-        aria-label={bought ? 'Mark active' : 'Mark bought'}
-        className={`w-5 h-5 rounded border flex-shrink-0 transition-colors ${bought ? 'bg-blue-600 border-blue-600' : 'border-gray-500 hover:border-blue-500'}`}
+      {/* State indicator (read-only) */}
+      <div
+        className={`w-5 h-5 rounded border flex-shrink-0 ${bought ? 'bg-blue-600 border-blue-600' : 'border-gray-500'}`}
       >
         {bought && <svg viewBox="0 0 12 12" fill="white" className="w-full h-full p-0.5"><path d="M10 3L5 8.5 2 5.5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>}
-      </button>
+      </div>
 
       {/* Name + qty/unit stepper below */}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
