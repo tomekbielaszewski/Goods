@@ -213,6 +213,14 @@ describe('getFrequentItems', () => {
     expect(ids).toContain('item-1')
   })
 
+  it('getFrequentItems_returnsAllCatalogueItems returns all items not active on list, not just top 20', async () => {
+    const manyItems = Array.from({ length: 25 }, (_, i) => makeItem(`item-${i + 1}`, `Item ${i + 1}`))
+    await db.items.bulkPut(manyItems)
+
+    const result = await getFrequentItems('list-1')
+    expect(result.length).toBe(25)
+  })
+
   it('getFrequentItems_sortsByFrequency returns items ordered by buy count descending', async () => {
     await db.items.bulkPut([
       makeItem('item-1', 'Rare'),

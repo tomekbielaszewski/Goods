@@ -123,7 +123,7 @@ export async function getListItemsWithItems(listId: string): Promise<ListItemWit
     .filter((x): x is ListItemWithItem => x !== null)
 }
 
-export async function getFrequentItems(listId: string, limit = 20): Promise<ItemWithDetails[]> {
+export async function getFrequentItems(listId: string): Promise<ItemWithDetails[]> {
   const activeOnList = new Set(
     (await db.listItems.where('listId').equals(listId).filter(li => li.state === 'active').toArray())
       .map(li => li.itemId)
@@ -133,7 +133,6 @@ export async function getFrequentItems(listId: string, limit = 20): Promise<Item
   return all
     .filter(i => !activeOnList.has(i.id) && !i.deletedAt)
     .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, limit)
 }
 
 export async function upsertItem(
