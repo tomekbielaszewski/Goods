@@ -12,7 +12,7 @@ const SuggestionsPanel: FC<SuggestionsPanelProps> = ({ listId, refresh, onAdd })
   const [items, setItems] = useState<ItemWithDetails[]>([])
 
   useEffect(() => {
-    getFrequentItems(listId, 20).then(setItems)
+    getFrequentItems(listId).then(setItems)
   }, [listId, refresh])
 
   if (items.length === 0) return null
