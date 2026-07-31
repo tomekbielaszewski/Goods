@@ -230,6 +230,61 @@ class ApiClient {
     return si
   }
 
+  async getList(id: string): Promise<List | undefined> {
+    return this.lists.get(id)
+  }
+
+  async getShop(id: string): Promise<Shop | undefined> {
+    return this.shops.get(id)
+  }
+
+  async deleteListItem(id: string): Promise<void> {
+    this.listItems.delete(id)
+  }
+
+  async findOpenSession(listId: string, shopId: string): Promise<ShoppingSession | undefined> {
+    return [...this.shoppingSessions.values()].find(s => s.listId === listId && s.shopId === shopId && !s.endedAt)
+  }
+
+  async getListItemsByItemId(itemId: string): Promise<ListItem[]> {
+    return [...this.listItems.values()].filter(li => li.itemId === itemId)
+  }
+
+  async softDeleteItem(id: string): Promise<void> {
+    const item = this.items.get(id)
+    if (item) this.items.set(id, { ...item, deletedAt: new Date().toISOString() })
+  }
+
+  async softDeleteShop(id: string): Promise<void> {
+    const shop = this.shops.get(id)
+    if (shop) this.shops.set(id, { ...shop, deletedAt: new Date().toISOString() })
+  }
+
+  async getSessionItemsByItemId(itemId: string): Promise<SessionItem[]> {
+    return this.sessionItems.filter(si => si.itemId === itemId).sort((a, b) => a.at.localeCompare(b.at))
+  }
+
+  async getShoppingSessionsByIds(ids: string[]): Promise<ShoppingSession[]> {
+    const result: ShoppingSession[] = []
+    for (const id of ids) {
+      const s = this.shoppingSessions.get(id)
+      if (s) result.push(s)
+    }
+    return result
+  }
+
+  async getItemShopsByShop(shopId: string): Promise<ItemShop[]> {
+    return this.itemShops.filter(is => is.shopId === shopId)
+  }
+
+  async createTagWithId(id: string, name: string): Promise<Tag> {
+    const tag: Tag = { id, name }
+    this.tags.set(tag.id, tag)
+    return tag
+  }
+
+  async loadData(): Promise<void> {}
+
   async getSessionItems(sessionId: string): Promise<SessionItem[]> {
     return this.sessionItems.filter(si => si.sessionId === sessionId)
   }

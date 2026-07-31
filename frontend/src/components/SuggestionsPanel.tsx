@@ -1,5 +1,5 @@
 import { type FC, useEffect, useState } from 'react'
-import { getFrequentItems } from '../db/queries'
+import { apiClient } from '../api/client'
 import type { ItemWithDetails } from '../types'
 
 interface SuggestionsPanelProps {
@@ -12,7 +12,7 @@ const SuggestionsPanel: FC<SuggestionsPanelProps> = ({ listId, refresh, onAdd })
   const [items, setItems] = useState<ItemWithDetails[]>([])
 
   useEffect(() => {
-    getFrequentItems(listId).then(setItems)
+    apiClient.getFrequentItems(listId).then(setItems)
   }, [listId, refresh])
 
   if (items.length === 0) return null

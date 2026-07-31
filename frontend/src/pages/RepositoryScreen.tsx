@@ -1,6 +1,6 @@
 import { type FC, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getItemsWithDetails } from '../db/queries'
+import { apiClient } from '../api/client'
 import type { ItemWithDetails } from '../types'
 import ItemCard from '../components/ItemCard'
 
@@ -10,7 +10,7 @@ const RepositoryScreen: FC = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
-    getItemsWithDetails(query || undefined)
+    apiClient.getItemsWithDetails(query || undefined)
       .then(all => setItems(all.filter(i => !i.deletedAt).sort((a, b) => a.name.localeCompare(b.name))))
   }, [query])
 

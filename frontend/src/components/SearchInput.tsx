@@ -1,5 +1,5 @@
 import { type FC, useState, useEffect, useRef } from 'react'
-import { getItemsWithDetails } from '../db/queries'
+import { apiClient } from '../api/client'
 import type { ItemWithDetails } from '../types'
 import ShopDot from './ShopDot'
 
@@ -24,7 +24,7 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
     if (!query.trim()) { setResults([]); setAllResults([]); setOpen(false); return }
 
     timer.current = setTimeout(async () => {
-      const items = await getItemsWithDetails(query)
+      const items = await apiClient.getItemsWithDetails(query)
       setAllResults(items)
       const filtered = excludeIds ? items.filter(i => !excludeIds.has(i.id)) : items
       setResults(filtered.slice(0, 8))

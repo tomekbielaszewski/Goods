@@ -1,8 +1,7 @@
 import { type FC, useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { db } from '../db/schema'
+import { apiClient } from '../api/client'
 import type { Shop, ItemWithDetails } from '../types'
-import { getItemsWithDetails, addItemToShop, removeItemFromShop } from '../db/queries'
 import TagBadge from '../components/TagBadge'
 import ShopDot from '../components/ShopDot'
 
@@ -23,9 +22,9 @@ const ShopItemsScreen: FC = () => {
   const load = async () => {
     if (!id) return
     const [s, itemShops, items] = await Promise.all([
-      db.shops.get(id),
-      db.itemShops.where('shopId').equals(id).toArray(),
-      getItemsWithDetails(),
+      apiClient.getShop(id),
+      apiClient.getItemShopsByShop(id),
+      apiClient.getItemsWithDetails(),
     ])
     setShop(s ?? null)
     setShopItemIds(new Set(itemShops.map(is => is.itemId)))
@@ -37,10 +36,10 @@ const ShopItemsScreen: FC = () => {
   const toggle = async (item: ItemWithDetails) => {
     if (!id) return
     if (shopItemIds.has(item.id)) {
-      await removeItemFromShop(item.id, id)
+      await apiClient.removeItemFromShop(item.id, id)
       setShopItemIds(prev => { const s = new Set(prev); s.delete(item.id); return s })
     } else {
-      await addItemToShop(item.id, id)
+      await apiClient.addItemToShop(item.id, id)
       setShopItemIds(prev => new Set(prev).add(item.id))
     }
   }

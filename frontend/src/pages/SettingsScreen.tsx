@@ -1,6 +1,6 @@
 import { type FC, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/schema'
+import { apiClient } from '../api/client'
 import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
 
@@ -38,18 +38,17 @@ const SettingsScreen: FC = () => {
     }
   }
 
-  const load = () => db.shops.filter(s => !s.deletedAt).toArray().then(setShops)
+  const load = () => apiClient.getShops().then(s => setShops(s.filter(s => !s.deletedAt)))
   useEffect(() => { void load() }, [])
 
   const save = async () => {
     if (!name.trim()) return
-    const now = new Date().toISOString()
     if (editId) {
       const existing = shops.find(s => s.id === editId)
       if (!existing) return
-      await db.shops.put({ ...existing, name: name.trim(), color, version: existing.version + 1, updatedAt: now })
+      await apiClient.updateShop(editId, { name: name.trim(), color })
     } else {
-      await db.shops.add({ id: crypto.randomUUID(), name: name.trim(), color, version: 1, updatedAt: now })
+      await apiClient.createShop({ name: name.trim(), color })
     }
     setName(''); setColor(PALETTE[0]!); setEditId(null)
     void load()
@@ -60,7 +59,7 @@ const SettingsScreen: FC = () => {
   }
 
   const deleteShop = async (id: string) => {
-    await db.shops.update(id, { deletedAt: new Date().toISOString() })
+    await apiClient.softDeleteShop(id)
     void load()
   }
 
