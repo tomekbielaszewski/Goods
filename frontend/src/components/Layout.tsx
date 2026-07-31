@@ -1,6 +1,5 @@
 import { type FC, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import SyncStatusBar from './SyncStatusBar'
 
 const nav = [
   { to: '/',           label: 'Lists',      icon: ListsIcon },
@@ -10,7 +9,6 @@ const nav = [
 
 const Layout: FC<{ children: ReactNode }> = ({ children }) => (
   <div className="flex flex-col h-svh max-w-md mx-auto">
-    <SyncStatusBar />
     <main className="flex-1 overflow-y-auto">
       {children}
     </main>

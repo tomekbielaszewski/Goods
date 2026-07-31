@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  Conflict, SortMode, SyncStatus,
+  SortMode,
   Shop, Tag, List, ListItem, ShoppingSession, SessionItem,
   ItemShop, ItemTag, ListItemSkippedShop,
   Item,
@@ -8,11 +8,6 @@ import type {
 import { apiClient } from '../api/client'
 
 interface AppStore {
-  syncStatus: SyncStatus
-  syncFailed: boolean
-  conflicts: Conflict[]
-  lastSyncedAt: string | null
-
   shoppingModeShopId: string | null
   sortModes: Record<string, SortMode>
 
@@ -27,10 +22,6 @@ interface AppStore {
   itemTags: ItemTag[]
   listItemSkippedShops: ListItemSkippedShop[]
 
-  setSyncStatus: (s: SyncStatus) => void
-  setLastSyncedAt: (t: string) => void
-  addConflicts: (c: Conflict[]) => void
-  resolveConflict: (entity: string, id: string) => void
   enterShoppingMode: (shopId: string) => void
   exitShoppingMode: () => void
   setSortMode: (listId: string, mode: SortMode) => void
@@ -55,10 +46,6 @@ interface AppStore {
 }
 
 export const useStore = create<AppStore>((set) => ({
-  syncStatus: 'idle',
-  syncFailed: false,
-  conflicts: [],
-  lastSyncedAt: localStorage.getItem('lastSyncedAt'),
   shoppingModeShopId: null,
   sortModes: JSON.parse(localStorage.getItem('sortModes') ?? '{}') as Record<string, SortMode>,
 
@@ -72,27 +59,6 @@ export const useStore = create<AppStore>((set) => ({
   itemShops: [],
   itemTags: [],
   listItemSkippedShops: [],
-
-  setSyncStatus: (syncStatus) => set(state => ({
-    syncStatus,
-    syncFailed:
-      syncStatus === 'error' || syncStatus === 'offline' ? true :
-      syncStatus === 'synced'                            ? false :
-      state.syncFailed,
-  })),
-
-  setLastSyncedAt: (t) => {
-    localStorage.setItem('lastSyncedAt', t)
-    set({ lastSyncedAt: t })
-  },
-
-  addConflicts: (incoming) =>
-    set(state => ({ conflicts: [...state.conflicts, ...incoming] })),
-
-  resolveConflict: (entity, id) =>
-    set(state => ({
-      conflicts: state.conflicts.filter(c => !(c.entity === entity && c.id === id)),
-    })),
 
   enterShoppingMode: (shopId) => set({ shoppingModeShopId: shopId }),
   exitShoppingMode: () => set({ shoppingModeShopId: null }),

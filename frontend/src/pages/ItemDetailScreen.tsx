@@ -1,7 +1,6 @@
 import { type FC, useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { db } from '../db/schema'
-import { upsertItem, upsertListItem, getItemWithDetails } from '../db/queries'
+import { apiClient } from '../api/client'
 import type { Shop, Tag, ItemWithDetails, SessionItem } from '../types'
 import ShopDot from '../components/ShopDot'
 import TagBadge from '../components/TagBadge'
@@ -34,11 +33,11 @@ const ItemDetailScreen: FC = () => {
   const [sessionShopMap, setSessionShopMap] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
-    db.shops.toArray().then(setShops)
-    db.tags.toArray().then(setTags)
+    apiClient.getShops().then(setShops)
+    apiClient.getTags().then(setTags)
 
     if (!isNew && id) {
-      getItemWithDetails(id).then(async enriched => {
+      apiClient.getItemWithDetails(id).then(async enriched => {
         if (!enriched) return
         setItem(enriched)
         setName(enriched.name)
@@ -49,12 +48,12 @@ const ItemDetailScreen: FC = () => {
         setSelectedShops(enriched.shops.map(s => s.id))
         setSelectedTags(enriched.tags.map(t => t.id))
 
-        const hist = await db.sessionItems.where('itemId').equals(id).sortBy('at')
+        const hist = await apiClient.getSessionItemsByItemId(id)
         const recent = [...hist].reverse().slice(0, 20)
         setHistory(recent)
 
         const sessionIds = [...new Set(recent.map(h => h.sessionId))]
-        const sessions = await db.shoppingSessions.bulkGet(sessionIds)
+        const sessions = await apiClient.getShoppingSessionsByIds(sessionIds)
         const map = new Map<string, string>()
         for (const s of sessions) {
           if (s) map.set(s.id, s.shopId)
@@ -77,7 +76,7 @@ const ItemDetailScreen: FC = () => {
     const newUnit = unit || undefined
     const oldUnit = item?.unit
 
-    await upsertItem(
+    await apiClient.upsertItem(
       {
         id: itemId,
         name: name.trim(),
@@ -96,18 +95,18 @@ const ItemDetailScreen: FC = () => {
     // Cascade unit change to list items that still carry the old default unit.
     // List items with a user-overridden unit (different from the old default) are left untouched.
     if (!isNew && oldUnit !== newUnit) {
-      const affected = await db.listItems.where('itemId').equals(itemId).toArray()
+      const affected = await apiClient.getListItemsByItemId(itemId)
       await Promise.all(
         affected
           .filter(li => li.unit === oldUnit)
-          .map(li => upsertListItem({ ...li, unit: newUnit, updatedAt: now, version: li.version + 1 }))
+          .map(li => apiClient.upsertListItem({ ...li, unit: newUnit, updatedAt: now, version: li.version + 1 }))
       )
     }
 
     // If coming from list add flow, add to that list
     const listId = searchParams.get('listId')
     if (listId && isNew) {
-      await db.listItems.add({
+      await apiClient.upsertListItem({
         id: crypto.randomUUID(),
         listId,
         itemId,
@@ -127,7 +126,7 @@ const ItemDetailScreen: FC = () => {
 
   const deleteItem = async () => {
     if (!id || isNew) return
-    await db.items.update(id, { deletedAt: new Date().toISOString() })
+    await apiClient.softDeleteItem(id)
     navigate(-1)
   }
 
@@ -139,9 +138,9 @@ const ItemDetailScreen: FC = () => {
     if (existing) {
       tagId = existing.id
     } else {
-      tagId = crypto.randomUUID()
-      await db.tags.add({ id: tagId, name: normalized })
-      setTags(prev => [...prev, { id: tagId, name: normalized }])
+      const created = await apiClient.createTag(normalized)
+      tagId = created.id
+      setTags(prev => [...prev, created])
     }
     setSelectedTags(prev => prev.includes(tagId) ? prev : [...prev, tagId])
     setNewTag('')
@@ -235,8 +234,7 @@ const ItemDetailScreen: FC = () => {
                   className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'border-transparent text-white' : 'border-border text-gray-400 hover:border-gray-500'}`}
                   style={selected ? { backgroundColor: shop.color } : undefined}
                 >
-                  <ShopDot color={shop.color} />
-                  {shop.name}
+                  <ShopDot color={shop.color} title={shop.name} />
                 </button>
               )
             })}

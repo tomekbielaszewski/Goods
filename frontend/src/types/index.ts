@@ -98,43 +98,4 @@ export interface ListItemWithItem extends ListItem {
   skippedShopIds: string[]
 }
 
-// Sync types
-
-export interface SyncChanges {
-  shops: Shop[]
-  items: Item[]
-  tags: Tag[]
-  itemShops: ItemShop[]
-  itemTags: ItemTag[]
-  lists: List[]
-  listItems: ListItem[]
-  listItemSkippedShops: ListItemSkippedShop[]
-  shoppingSessions: ShoppingSession[]
-  sessionItems: SessionItem[]
-}
-
-export interface Conflict {
-  entity: string
-  id: string
-  client: unknown
-  server: unknown
-}
-
-export interface SyncRequest {
-  lastSyncedAt: string
-  changes: SyncChanges
-}
-
-export interface SyncResponse {
-  serverTime: string
-  applied: string[]
-  conflicts: Conflict[]
-  serverChanges: SyncChanges
-}
-
-export interface BootstrapResponse extends SyncChanges {
-  serverTime: string
-}
-
 export type SortMode = 'date' | 'name' | 'frequency' | 'tag'
-export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error' | 'offline'

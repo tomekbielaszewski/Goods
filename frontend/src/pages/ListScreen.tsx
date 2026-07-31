@@ -1,7 +1,6 @@
 import { type FC, useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { db } from '../db/schema'
-import { getListItemsWithItems, upsertList, upsertListItem, skipShopForListItem, clearSkipForListItem, recordSessionItem, cloneList } from '../db/queries'
+import { apiClient } from '../api/client'
 import { useStore } from '../store/useStore'
 import type { List, ListItemWithItem, ItemWithDetails, Shop, SortMode } from '../types'
 import ItemCard from '../components/ItemCard'
@@ -50,7 +49,7 @@ const ListScreen: FC = () => {
     if (!list || !renameName.trim()) return
     const now = new Date().toISOString()
     const updated = { ...list, name: renameName.trim(), updatedAt: now, version: list.version + 1 }
-    await upsertList(updated)
+    await apiClient.upsertList(updated)
     setList(updated)
     setRenameOpen(false)
   }
@@ -58,7 +57,7 @@ const ListScreen: FC = () => {
   const toggleArchive = async () => {
     if (!list) return
     const now = new Date().toISOString()
-    await upsertList({
+    await apiClient.upsertList({
       ...list,
       archivedAt: list.archivedAt ? undefined : now,
       updatedAt: now,
@@ -72,15 +71,15 @@ const ListScreen: FC = () => {
   const handleCloneList = async () => {
     if (!list) return
     setMenuOpen(false)
-    const newId = await cloneList(list, listItems)
-    navigate(`/list/${newId}`)
+    const cloned = await apiClient.cloneList(list.id)
+    navigate(`/list/${cloned.id}`)
   }
 
   useEffect(() => {
     if (!id) return
-    db.lists.get(id).then(l => setList(l ?? null))
-    db.shops.toArray().then(setShops)
-    getListItemsWithItems(id).then(setListItems)
+    apiClient.getList(id).then(l => setList(l ?? null))
+    apiClient.getShops().then(setShops)
+    apiClient.getListItemsWithItems(id).then(setListItems)
   }, [id, refresh])
 
   const sorted = useSorted(listItems, sortMode)
@@ -92,14 +91,14 @@ const ListScreen: FC = () => {
     const existing = listItems.find(li => li.itemId === item.id)
     if (existing) {
       if (existing.state !== 'active') {
-        await upsertListItem({ ...existing, state: 'active', updatedAt: new Date().toISOString(), version: existing.version + 1 })
+        await apiClient.upsertListItem({ ...existing, state: 'active', updatedAt: new Date().toISOString(), version: existing.version + 1 })
         reload()
       }
       return
     }
     const now = new Date().toISOString()
     const defaultQty = item.defaultQuantity ?? (item.unit === 'g' || item.unit === 'ml' ? 100 : 1)
-    await upsertListItem({
+    await apiClient.upsertListItem({
       id: crypto.randomUUID(),
       listId: id,
       itemId: item.id,
@@ -115,17 +114,14 @@ const ListScreen: FC = () => {
 
   const toggleItem = async (li: ListItemWithItem) => {
     const newState = li.state === 'active' ? 'bought' : 'active'
-    await upsertListItem({ ...li, state: newState, updatedAt: new Date().toISOString(), version: li.version + 1 })
+    await apiClient.upsertListItem({ ...li, state: newState, updatedAt: new Date().toISOString(), version: li.version + 1 })
 
     if (newState === 'bought' && shoppingModeShopId && id) {
       const sessionId = await getOrCreateSession(id, shoppingModeShopId)
-      await recordSessionItem({
-        id: crypto.randomUUID(),
+      await apiClient.recordSessionItem({
         sessionId,
         itemId: li.itemId,
         action: 'bought',
-        quantity: li.quantity,
-        unit: li.unit ?? li.item.unit,
         at: new Date().toISOString(),
       })
     }
@@ -134,26 +130,23 @@ const ListScreen: FC = () => {
   }
 
   const removeItem = async (li: ListItemWithItem) => {
-    await db.listItems.delete(li.id)
+    await apiClient.deleteListItem(li.id)
     reload()
   }
 
   const updateQuantity = async (li: ListItemWithItem, qty: number | undefined, unit: string | undefined) => {
-    await upsertListItem({ ...li, quantity: qty, unit, updatedAt: new Date().toISOString(), version: li.version + 1 })
+    await apiClient.upsertListItem({ ...li, quantity: qty, unit, updatedAt: new Date().toISOString(), version: li.version + 1 })
     reload()
   }
 
   const skipAtShop = async (li: ListItemWithItem) => {
     if (!shoppingModeShopId || !id) return
-    await skipShopForListItem(li.id, shoppingModeShopId)
+    await apiClient.skipShopForListItem(li.id, shoppingModeShopId)
     const sessionId = await getOrCreateSession(id, shoppingModeShopId)
-    await recordSessionItem({
-      id: crypto.randomUUID(),
+    await apiClient.recordSessionItem({
       sessionId,
       itemId: li.itemId,
       action: 'skipped',
-      quantity: li.quantity,
-      unit: li.unit ?? li.item.unit,
       at: new Date().toISOString(),
     })
     reload()
@@ -161,7 +154,7 @@ const ListScreen: FC = () => {
 
   const clearSkip = async (li: ListItemWithItem) => {
     if (!shoppingModeShopId) return
-    await clearSkipForListItem(li.id, shoppingModeShopId)
+    await apiClient.clearSkipForListItem(li.id, shoppingModeShopId)
     reload()
   }
 
@@ -383,14 +376,10 @@ const ListScreen: FC = () => {
 }
 
 async function getOrCreateSession(listId: string, shopId: string): Promise<string> {
-  const existing = await db.shoppingSessions
-    .where('listId').equals(listId)
-    .filter(s => s.shopId === shopId && !s.endedAt)
-    .first()
+  const existing = await apiClient.findOpenSession(listId, shopId)
   if (existing) return existing.id
-  const id = crypto.randomUUID()
-  await db.shoppingSessions.add({ id, listId, shopId, startedAt: new Date().toISOString(), version: 1 })
-  return id
+  const session = await apiClient.createShoppingSession(listId, shopId)
+  return session.id
 }
 
 function useSorted(items: ListItemWithItem[], mode: SortMode): ListItemWithItem[] {
