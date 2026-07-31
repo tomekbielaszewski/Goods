@@ -4,12 +4,13 @@ import userEvent from '@testing-library/user-event'
 import SearchInput from './SearchInput'
 import type { ItemWithDetails } from '../types'
 
-// Mock the DB query so we don't need real IndexedDB data
-vi.mock('../db/queries', () => ({
-  getItemsWithDetails: vi.fn(),
+vi.mock('../api/client', () => ({
+  apiClient: {
+    getItemsWithDetails: vi.fn(),
+  },
 }))
 
-import { getItemsWithDetails } from '../db/queries'
+import { apiClient } from '../api/client'
 
 const makeItem = (overrides?: Partial<ItemWithDetails>): ItemWithDetails => ({
   id: 'item-1',
@@ -29,7 +30,7 @@ afterEach(() => {
 
 describe('SearchInput — Enter key behaviour', () => {
   beforeEach(() => {
-    vi.mocked(getItemsWithDetails).mockResolvedValue([makeItem()])
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([makeItem()])
   })
 
   it('selects the top result on Enter when results exist (does NOT call onCreateNew)', async () => {
@@ -55,7 +56,7 @@ describe('SearchInput — Enter key behaviour', () => {
   })
 
   it('calls onCreateNew on Enter only when there are no results', async () => {
-    vi.mocked(getItemsWithDetails).mockResolvedValue([])
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([])
     const user = userEvent.setup()
     const onSelect = vi.fn()
     const onCreateNew = vi.fn()
@@ -80,7 +81,7 @@ describe('SearchInput — Enter key behaviour', () => {
 describe('SearchInput — duplicate prevention when item is excluded (already on list)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(getItemsWithDetails).mockResolvedValue([makeItem({ id: 'ketchup-id', name: 'Ketchup' })])
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([makeItem({ id: 'ketchup-id', name: 'Ketchup' })])
   })
 
   it('does not show "+ Add" when an item with that exact name exists but is excluded', async () => {
@@ -100,7 +101,7 @@ describe('SearchInput — duplicate prevention when item is excluded (already on
     await user.type(input, 'Ketchup')
 
     // Wait for the debounce to fire, then verify no duplicate button appears
-    await waitFor(() => expect(vi.mocked(getItemsWithDetails)).toHaveBeenCalled())
+    await waitFor(() => expect(vi.mocked(apiClient.getItemsWithDetails)).toHaveBeenCalled())
     expect(screen.queryByText('+ Add "Ketchup"')).not.toBeInTheDocument()
     expect(onCreateNew).not.toHaveBeenCalled()
   })
@@ -121,7 +122,7 @@ describe('SearchInput — duplicate prevention when item is excluded (already on
     const input = screen.getByPlaceholderText('Search items…')
     await user.type(input, 'Ketchup')
     // Wait for the debounce to fire and React to re-render with allResults populated
-    await waitFor(() => expect(vi.mocked(getItemsWithDetails)).toHaveBeenCalled())
+    await waitFor(() => expect(vi.mocked(apiClient.getItemsWithDetails)).toHaveBeenCalled())
     await user.keyboard('{Enter}')
 
     expect(onCreateNew).not.toHaveBeenCalled()

@@ -3,7 +3,17 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ItemDetailScreen from './ItemDetailScreen'
-import { db } from '../db/schema'
+import { apiClient } from '../api/client'
+import type { Shop, Item, Tag, ListItem, ShoppingSession, SessionItem } from '../types'
+
+const store = apiClient as unknown as {
+  shops: Map<string, Shop>
+  items: Map<string, Item>
+  tags: Map<string, Tag>
+  listItems: Map<string, ListItem>
+  shoppingSessions: Map<string, ShoppingSession>
+  sessionItems: SessionItem[]
+}
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -19,31 +29,25 @@ const renderNewItem = () =>
     </MemoryRouter>
   )
 
+const renderItem = (id: string) =>
+  render(
+    <MemoryRouter initialEntries={[`/item/${id}`]}>
+      <Routes>
+        <Route path="/item/:id" element={<ItemDetailScreen />} />
+      </Routes>
+    </MemoryRouter>
+  )
+
 beforeEach(async () => {
-  await db.transaction('rw', [db.tags, db.items, db.itemTags, db.shops, db.itemShops, db.lists, db.listItems, db.listItemSkippedShops, db.shoppingSessions, db.sessionItems, db.pendingSyncIds], async () => {
-    await Promise.all([
-      db.tags.clear(),
-      db.items.clear(),
-      db.itemTags.clear(),
-      db.shops.clear(),
-      db.itemShops.clear(),
-      db.lists.clear(),
-      db.listItems.clear(),
-      db.listItemSkippedShops.clear(),
-      db.shoppingSessions.clear(),
-      db.sessionItems.clear(),
-      db.pendingSyncIds.clear(),
-    ])
-  })
+  apiClient.reset()
 })
 
 describe('ItemDetailScreen — tag filtering', () => {
   it('shows all existing tags when the input is empty', async () => {
-    await db.tags.bulkAdd([
-      { id: 't1', name: 'dairy' },
-      { id: 't2', name: 'frozen' },
-      { id: 't3', name: 'drinks' },
-    ])
+    const now = new Date().toISOString()
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
+    store.tags.set('t3', { id: 't3', name: 'drinks' })
 
     renderNewItem()
 
@@ -55,11 +59,9 @@ describe('ItemDetailScreen — tag filtering', () => {
   })
 
   it('filters the tag list as the user types', async () => {
-    await db.tags.bulkAdd([
-      { id: 't1', name: 'dairy' },
-      { id: 't2', name: 'frozen' },
-      { id: 't3', name: 'drinks' },
-    ])
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
+    store.tags.set('t3', { id: 't3', name: 'drinks' })
 
     const user = userEvent.setup()
     renderNewItem()
@@ -75,10 +77,8 @@ describe('ItemDetailScreen — tag filtering', () => {
   })
 
   it('hides the list entirely when nothing matches', async () => {
-    await db.tags.bulkAdd([
-      { id: 't1', name: 'dairy' },
-      { id: 't2', name: 'frozen' },
-    ])
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
 
     const user = userEvent.setup()
     renderNewItem()
@@ -92,10 +92,8 @@ describe('ItemDetailScreen — tag filtering', () => {
   })
 
   it('clicking a tag from the list adds it to selected tags', async () => {
-    await db.tags.bulkAdd([
-      { id: 't1', name: 'dairy' },
-      { id: 't2', name: 'frozen' },
-    ])
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
 
     const user = userEvent.setup()
     renderNewItem()
@@ -112,10 +110,8 @@ describe('ItemDetailScreen — tag filtering', () => {
   })
 
   it('shows remaining unselected tags after one is selected', async () => {
-    await db.tags.bulkAdd([
-      { id: 't1', name: 'dairy' },
-      { id: 't2', name: 'frozen' },
-    ])
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
 
     const user = userEvent.setup()
     renderNewItem()
@@ -143,7 +139,7 @@ describe('ItemDetailScreen — tag filtering', () => {
   })
 
   it('pressing Enter on a typed value that matches an existing tag selects it', async () => {
-    await db.tags.add({ id: 't1', name: 'dairy' })
+    store.tags.set('t1', { id: 't1', name: 'dairy' })
 
     const user = userEvent.setup()
     renderNewItem()
@@ -266,8 +262,8 @@ describe('ItemDetailScreen — unit change cascades to list items', () => {
     const now = new Date().toISOString()
     const user = userEvent.setup()
 
-    await db.items.add({ id: 'i1', name: 'Flour', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
-    await db.listItems.add({ id: 'li1', listId: 'list1', itemId: 'i1', state: 'active', quantity: 1, unit: 'kg', version: 1, addedAt: now, updatedAt: now })
+    store.items.set('i1', { id: 'i1', name: 'Flour', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
+    store.listItems.set('li1', { id: 'li1', listId: 'list1', itemId: 'i1', state: 'active', quantity: 1, unit: 'kg', version: 1, addedAt: now, updatedAt: now })
 
     renderItem('i1')
 
@@ -282,8 +278,8 @@ describe('ItemDetailScreen — unit change cascades to list items', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     // The listItem that snapshotted the old unit should be updated
-    await waitFor(async () => {
-      const updated = await db.listItems.get('li1')
+    await waitFor(() => {
+      const updated = store.listItems.get('li1')
       expect(updated?.unit).toBe('g')
     })
   })
@@ -292,9 +288,9 @@ describe('ItemDetailScreen — unit change cascades to list items', () => {
     const now = new Date().toISOString()
     const user = userEvent.setup()
 
-    await db.items.add({ id: 'i2', name: 'Sugar', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
+    store.items.set('i2', { id: 'i2', name: 'Sugar', unit: 'kg', defaultQuantity: 1, version: 1, createdAt: now, updatedAt: now })
     // This list item has a user-chosen unit 'bag' — different from item default 'kg'
-    await db.listItems.add({ id: 'li2', listId: 'list1', itemId: 'i2', state: 'active', quantity: 1, unit: 'bag', version: 1, addedAt: now, updatedAt: now })
+    store.listItems.set('li2', { id: 'li2', listId: 'list1', itemId: 'i2', state: 'active', quantity: 1, unit: 'bag', version: 1, addedAt: now, updatedAt: now })
 
     renderItem('i2')
 
@@ -306,8 +302,8 @@ describe('ItemDetailScreen — unit change cascades to list items', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     // Unit 'bag' was not the old default, so it must not be changed
-    await waitFor(async () => {
-      const untouched = await db.listItems.get('li2')
+    await waitFor(() => {
+      const untouched = store.listItems.get('li2')
       expect(untouched?.unit).toBe('bag')
     })
   })
@@ -317,23 +313,14 @@ describe('ItemDetailScreen — unit change cascades to list items', () => {
 // purchase history table
 // ---------------------------------------------------------------------------
 
-const renderItem = (id: string) =>
-  render(
-    <MemoryRouter initialEntries={[`/item/${id}`]}>
-      <Routes>
-        <Route path="/item/:id" element={<ItemDetailScreen />} />
-      </Routes>
-    </MemoryRouter>
-  )
-
 describe('ItemDetailScreen — purchase history table', () => {
   it('shows the shop name in the history table for each session item', async () => {
     const now = new Date().toISOString()
 
-    await db.shops.add({ id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
-    await db.items.add({ id: 'i1', name: 'Milk', version: 1, createdAt: now, updatedAt: now })
-    await db.shoppingSessions.add({ id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
-    await db.sessionItems.add({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'skipped', at: now })
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+    store.items.set('i1', { id: 'i1', name: 'Milk', version: 1, createdAt: now, updatedAt: now })
+    store.shoppingSessions.set('sess1', { id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
+    store.sessionItems.push({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'skipped', at: now })
 
     renderItem('i1')
 
@@ -345,10 +332,10 @@ describe('ItemDetailScreen — purchase history table', () => {
   it('shows the shop column header in the history table', async () => {
     const now = new Date().toISOString()
 
-    await db.shops.add({ id: 's1', name: 'Aldi', color: '#0000ff', version: 1, updatedAt: now })
-    await db.items.add({ id: 'i1', name: 'Bread', version: 1, createdAt: now, updatedAt: now })
-    await db.shoppingSessions.add({ id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
-    await db.sessionItems.add({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'bought', at: now })
+    store.shops.set('s1', { id: 's1', name: 'Aldi', color: '#0000ff', version: 1, updatedAt: now })
+    store.items.set('i1', { id: 'i1', name: 'Bread', version: 1, createdAt: now, updatedAt: now })
+    store.shoppingSessions.set('sess1', { id: 'sess1', listId: 'l1', shopId: 's1', startedAt: now, version: 1 })
+    store.sessionItems.push({ id: 'si1', sessionId: 'sess1', itemId: 'i1', action: 'bought', at: now })
 
     renderItem('i1')
 
