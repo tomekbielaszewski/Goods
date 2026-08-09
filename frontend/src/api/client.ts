@@ -4,6 +4,8 @@ import type {
   ItemWithDetails, ListItemWithItem,
 } from '../types'
 import type { AppEvent } from '../types/event'
+import { fetchRemoteEvents, publishPendingEvents, subscribeEventStream } from './transport'
+import type { ServerEvent } from './transport'
 
 type ItemCreateInput = {
   name: string
@@ -43,6 +45,7 @@ class ApiClient {
   private clientId = crypto.randomUUID()
   private lamport = 0
   private lastTs = 0
+  private lastSeq = 0
   private listeners = new Set<(e: AppEvent) => void>()
 
   private nowIso(): string {
@@ -65,13 +68,14 @@ class ApiClient {
     this.events = []
     this.outbox = []
     this.lamport = 0
+    this.lastSeq = 0
     this.listeners.clear()
   }
 
   private stamp(event: EventInput): AppEvent {
     return {
       ...event,
-      id: crypto.randomUUID(),
+      id: event.entityId,
       clientId: this.clientId,
       lamport: ++this.lamport,
       timestamp: this.nowIso(),
@@ -341,7 +345,29 @@ class ApiClient {
     return tag
   }
 
-  async loadData(): Promise<void> {}
+  async loadData(): Promise<void> {
+    const { events, lastSeq } = await fetchRemoteEvents(this.lastSeq)
+    for (const e of events) this.applyRemoteEvent(e)
+    this.lastSeq = Math.max(this.lastSeq, lastSeq)
+    await this.sync()
+  }
+
+  async sync(): Promise<void> {
+    const resp = await publishPendingEvents(this.outbox)
+    this.outbox = []
+    this.lastSeq = Math.max(this.lastSeq, resp.lastSeq)
+  }
+
+  connectStream(): () => void {
+    return subscribeEventStream(this.lastSeq, e => this.applyRemoteEvent(e))
+  }
+
+  private applyRemoteEvent(e: ServerEvent) {
+    this.applyEvent(e)
+    for (const listener of this.listeners) listener(e)
+    this.lastSeq = Math.max(this.lastSeq, e.seq)
+    this.lamport = Math.max(this.lamport, e.lamport)
+  }
 
   // ── Mutations (granular events) ──────────────────────────────────────────────
 
