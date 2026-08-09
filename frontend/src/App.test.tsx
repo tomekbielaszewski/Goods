@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import App from './App'
 import { apiClient } from './api/client'
@@ -36,10 +36,52 @@ function mockFetch(routes: Route[]): Mock {
   return fetchMock
 }
 
-const bootRoutes = (): Route[] => [
-  { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [], lastSeq: 0 }) },
-  { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 0 }) },
-]
+const bootRoutes = (): Route[] => {
+  const stream = sseRoute()
+  return [
+    { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [], lastSeq: 0 }) },
+    { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 0 }) },
+    stream.route,
+  ]
+}
+
+// SSE stream route: a stream that stays open and never emits — keeps
+// connectStream's fetch from throwing while staying inert.
+function sseRoute(): { route: Route } {
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+  const route: Route = {
+    method: 'GET',
+    url: '/api/events/stream',
+    response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+  }
+  return { route }
+}
+
+const restoredRoutes = (): Route[] => {
+  const stream = sseRoute()
+  return [
+    {
+      method: 'GET',
+      url: '/api/events?since=0',
+      response: jsonResponse({
+        events: [{
+          id: 'evt-1',
+          clientId: 'remote',
+          lamport: 1,
+          timestamp: '2026-08-09T10:00:00.000Z',
+          entityId: 'list-1',
+          type: 'ListCreated',
+          payload: { name: 'Restored List' },
+          seq: 1,
+        }],
+        lastSeq: 1,
+      }),
+    },
+    { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 }) },
+    stream.route,
+  ]
+}
 
 beforeEach(() => {
   apiClient.reset()
@@ -102,5 +144,26 @@ describe('App — startup wiring', () => {
 
     unmount()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('App — restored data after refresh', () => {
+  it('shows server data on the initial render when the backend log contains events', async () => {
+    mockFetch(restoredRoutes())
+
+    renderApp()
+
+    // The GET /api/events?since=0 route returns a ListCreated event for
+    // "Restored List". The initially mounted ListsScreen must show it after
+    // loadData resolves — WITHOUT any navigation or remount.
+    await screen.findByText('Restored List')
+  })
+
+  it('still shows the empty state when the backend log is truly empty', async () => {
+    mockFetch(bootRoutes())
+
+    renderApp()
+
+    await screen.findByText('No lists yet. Create one to get started.')
   })
 })
