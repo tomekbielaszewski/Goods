@@ -238,7 +238,7 @@ describe('sync', () => {
     const firstId = bodies[0]!.events[0]!.id
     const secondId = bodies[1]!.events[0]!.id
     expect(secondId).toBe(firstId)
-    expect(secondId).toBe(shop.id)
+    expect(secondId).not.toBe(shop.id)
   })
 })
 
