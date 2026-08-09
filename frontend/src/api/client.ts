@@ -47,6 +47,7 @@ class ApiClient {
   private lastTs = 0
   private lastSeq = 0
   private listeners = new Set<(e: AppEvent) => void>()
+  private syncScheduled = false
 
   private nowIso(): string {
     const t = Math.max(Date.now(), this.lastTs + 1)
@@ -70,6 +71,7 @@ class ApiClient {
     this.lamport = 0
     this.lastSeq = 0
     this.listeners.clear()
+    this.syncScheduled = false
   }
 
   private stamp(event: EventInput): AppEvent {
@@ -93,6 +95,16 @@ class ApiClient {
     this.events.push(stamped)
     this.outbox.push(stamped)
     for (const listener of this.listeners) listener(stamped)
+    this.scheduleSync()
+  }
+
+  private scheduleSync() {
+    if (this.syncScheduled) return
+    this.syncScheduled = true
+    queueMicrotask(() => {
+      this.syncScheduled = false
+      this.sync().catch(() => {})
+    })
   }
 
   private mutate<T extends { id: string; version: number; updatedAt: string }>(
