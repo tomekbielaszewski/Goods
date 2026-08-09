@@ -8,9 +8,32 @@ import (
 	"time"
 
 	"groceries/models"
-	gsync "groceries/sync"
 	"groceries/strutil"
 )
+
+// isConflict returns true when the same entity was modified on both client
+// and server since the last sync — meaning neither side has seen the other's
+// changes.
+func isConflict(clientUpdatedAt, serverUpdatedAt, lastSyncedAt time.Time) bool {
+	return clientUpdatedAt.After(lastSyncedAt) && serverUpdatedAt.After(lastSyncedAt)
+}
+
+func makeConflict(entity, id string, client, server any) (models.Conflict, error) {
+	cb, err := json.Marshal(client)
+	if err != nil {
+		return models.Conflict{}, err
+	}
+	sb, err := json.Marshal(server)
+	if err != nil {
+		return models.Conflict{}, err
+	}
+	return models.Conflict{
+		Entity: entity,
+		ID:     id,
+		Client: cb,
+		Server: sb,
+	}, nil
+}
 
 func Sync(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +290,7 @@ func upsertShop(tx *sql.Tx, s models.Shop, lastSync time.Time) (applied bool, co
 		return false, nil, scanErr
 	}
 
-	if gsync.IsConflict(s.UpdatedAt, dbUpdatedAt, lastSync) {
+	if isConflict(s.UpdatedAt, dbUpdatedAt, lastSync) {
 		var dbShop models.Shop
 		if e := tx.QueryRow(`SELECT id, name, color, version, updated_at, deleted_at FROM shops WHERE id=?`, s.ID).
 			Scan(&dbShop.ID, &dbShop.Name, &dbShop.Color, &dbShop.Version, &dbShop.UpdatedAt, &dbShop.DeletedAt); e != nil {
@@ -283,7 +306,7 @@ func upsertShop(tx *sql.Tx, s models.Shop, lastSync time.Time) (applied bool, co
 			}
 			return false, nil, nil
 		}
-		c, e := gsync.MakeConflict("shop", s.ID, s, dbShop)
+		c, e := makeConflict("shop", s.ID, s, dbShop)
 		return false, &c, e
 	}
 
@@ -316,7 +339,7 @@ func upsertItem(tx *sql.Tx, item models.Item, lastSync time.Time) (applied bool,
 		return false, nil, scanErr
 	}
 
-	if gsync.IsConflict(item.UpdatedAt, dbUpdatedAt, lastSync) {
+	if isConflict(item.UpdatedAt, dbUpdatedAt, lastSync) {
 		var dbItem models.Item
 		var dbUnit, dbDescription, dbNotes sql.NullString
 		var dbDefaultQuantity sql.NullFloat64
@@ -351,7 +374,7 @@ func upsertItem(tx *sql.Tx, item models.Item, lastSync time.Time) (applied bool,
 			}
 			return false, nil, nil
 		}
-		c, e := gsync.MakeConflict("item", item.ID, item, dbItem)
+		c, e := makeConflict("item", item.ID, item, dbItem)
 		return false, &c, e
 	}
 
@@ -383,7 +406,7 @@ func upsertList(tx *sql.Tx, l models.List, lastSync time.Time) (applied bool, co
 		return false, nil, scanErr
 	}
 
-	if gsync.IsConflict(l.UpdatedAt, dbUpdatedAt, lastSync) {
+	if isConflict(l.UpdatedAt, dbUpdatedAt, lastSync) {
 		var dbList models.List
 		var dbDeletedAt sql.NullTime
 		var dbArchivedAt sql.NullTime
@@ -407,7 +430,7 @@ func upsertList(tx *sql.Tx, l models.List, lastSync time.Time) (applied bool, co
 			}
 			return false, nil, nil
 		}
-		c, e := gsync.MakeConflict("list", l.ID, l, dbList)
+		c, e := makeConflict("list", l.ID, l, dbList)
 		return false, &c, e
 	}
 
@@ -440,7 +463,7 @@ func upsertListItem(tx *sql.Tx, li models.ListItem, lastSync time.Time) (applied
 		return false, nil, scanErr
 	}
 
-	if gsync.IsConflict(li.UpdatedAt, dbUpdatedAt, lastSync) {
+	if isConflict(li.UpdatedAt, dbUpdatedAt, lastSync) {
 		var dbLI models.ListItem
 		if e := tx.QueryRow(`SELECT id, list_id, item_id, state, quantity, unit, notes, version, added_at, updated_at FROM list_items WHERE id=?`, li.ID).
 			Scan(&dbLI.ID, &dbLI.ListID, &dbLI.ItemID, &dbLI.State, &dbLI.Quantity, &dbLI.Unit, &dbLI.Notes, &dbLI.Version, &dbLI.AddedAt, &dbLI.UpdatedAt); e != nil {
@@ -456,7 +479,7 @@ func upsertListItem(tx *sql.Tx, li models.ListItem, lastSync time.Time) (applied
 			}
 			return false, nil, nil
 		}
-		c, e := gsync.MakeConflict("listItem", li.ID, li, dbLI)
+		c, e := makeConflict("listItem", li.ID, li, dbLI)
 		return false, &c, e
 	}
 
