@@ -547,11 +547,16 @@ describe('lists', () => {
   })
 
   it('cloneList emits ListCreated first, then one ListItemAdded per source item', async () => {
-    const src = await apiClient.createList('Weekly')
-    const i1 = await apiClient.createItem({ name: 'Milk', unit: 'l' }, [], [])
-    const i2 = await apiClient.createItem({ name: 'Eggs' }, [], [])
-    await apiClient.addListItem({ listId: src.id, itemId: i1.id, state: 'active', quantity: 2, unit: 'l', notes: 'buy two' })
-    await apiClient.addListItem({ listId: src.id, itemId: i2.id, state: 'bought', quantity: 1 })
+    let src!: List
+    let i1!: Item
+    let i2!: Item
+    const setupEvents = await capture(async () => {
+      src = await apiClient.createList('Weekly')
+      i1 = await apiClient.createItem({ name: 'Milk', unit: 'l' }, [], [])
+      i2 = await apiClient.createItem({ name: 'Eggs' }, [], [])
+      await apiClient.addListItem({ listId: src.id, itemId: i1.id, state: 'active', quantity: 2, unit: 'l', notes: 'buy two' })
+      await apiClient.addListItem({ listId: src.id, itemId: i2.id, state: 'bought', quantity: 1 })
+    })
 
     let cloned!: List
     const events = await capture(async () => {
@@ -595,7 +600,8 @@ describe('lists', () => {
 
     const lamports = events.map(e => e.lamport)
     expect(lamports).toEqual([...lamports].sort((a, b) => a - b))
-    expect(lamports).toEqual([1, 2, 3])
+    const lastSetupLamport = setupEvents.at(-1)!.lamport
+    expect(lamports).toEqual([lastSetupLamport + 1, lastSetupLamport + 2, lastSetupLamport + 3])
   })
 })
 
