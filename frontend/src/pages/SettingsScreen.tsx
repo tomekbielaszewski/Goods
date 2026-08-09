@@ -18,24 +18,15 @@ const SettingsScreen: FC = () => {
   const [editId, setEditId] = useState<string | null>(null)
 
   const [bugText, setBugText] = useState('')
-  const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   const submitBug = async () => {
     if (!bugText.trim()) return
     setBugStatus('sending')
-    try {
-      const res = await fetch('/api/report-bug', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: bugText.trim() }),
-      })
-      if (!res.ok) throw new Error('server error')
-      setBugText('')
-      setBugStatus('sent')
-      setTimeout(() => setBugStatus('idle'), 3000)
-    } catch {
-      setBugStatus('error')
-    }
+    await apiClient.reportBug(bugText.trim())
+    setBugText('')
+    setBugStatus('sent')
+    setTimeout(() => setBugStatus('idle'), 3000)
   }
 
   const load = () => apiClient.getShops().then(s => setShops(s.filter(s => !s.deletedAt)))
@@ -162,7 +153,6 @@ const SettingsScreen: FC = () => {
               {bugStatus === 'sending' ? 'Sending…' : 'Submit'}
             </button>
             {bugStatus === 'sent' && <span className="text-xs text-green-400">Sent!</span>}
-            {bugStatus === 'error' && <span className="text-xs text-red-400">Failed to send.</span>}
           </div>
           <button
             onClick={() => navigate('/bug-reports')}
