@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ListsScreen from './pages/ListsScreen'
@@ -7,8 +8,16 @@ import ItemDetailScreen from './pages/ItemDetailScreen'
 import SettingsScreen from './pages/SettingsScreen'
 import ShopItemsScreen from './pages/ShopItemsScreen'
 import BugReportsScreen from './pages/BugReportsScreen'
+import { apiClient } from './api/client'
+import { useStore } from './store/useStore'
 
 function App() {
+  useEffect(() => {
+    void useStore.getState().loadData()
+    const unsubscribe = apiClient.connectStream()
+    return unsubscribe
+  }, [])
+
   return (
     <Routes>
       <Route element={<Layout><ListsScreen /></Layout>}       path="/" />
