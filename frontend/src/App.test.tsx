@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import App from './App'
 import { apiClient } from './api/client'
 import { useStore } from './store/useStore'
+import type { List } from './types'
 
 // Pinned startup behavior exercised here:
 // - App mounts → useEffect (mount only) calls useStore.getState().loadData()
@@ -83,8 +84,36 @@ const restoredRoutes = (): Route[] => {
   ]
 }
 
+// Offline-first snapshot: the client persists its state as a single JSON blob in
+// localStorage under SNAPSHOT_KEY (see client.transport.test.ts for the full
+// documented shape). seedSnapshot writes a previous session's snapshot so these
+// tests can pin restore-on-boot behavior.
+const SNAPSHOT_KEY = 'grocery-snapshot'
+
+function seedSnapshot(partial: { lists?: List[]; lastSeq?: number } = {}): void {
+  const snap = {
+    shops: [],
+    items: [],
+    tags: [],
+    lists: partial.lists ?? [],
+    listItems: [],
+    itemShops: [],
+    itemTags: [],
+    listItemSkippedShops: [],
+    shoppingSessions: [],
+    sessionItems: [],
+    outbox: [],
+    lastSeq: partial.lastSeq ?? 0,
+    lamport: 0,
+    clientId: 'snapshot-client',
+    lastTs: 0,
+  }
+  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap))
+}
+
 beforeEach(() => {
   apiClient.reset()
+  localStorage.clear()
   useStore.setState({
     shoppingModeShopId: null,
     sortModes: {},
@@ -165,5 +194,54 @@ describe('App — restored data after refresh', () => {
     renderApp()
 
     await screen.findByText('No lists yet. Create one to get started.')
+  })
+})
+
+describe('App — offline-first boot from localStorage', () => {
+  it('renders restored data even when the network pull fails (offline boot)', async () => {
+    seedSnapshot({
+      lists: [{ id: 'list-offline', name: 'Offline List', version: 1, createdAt: '2026-08-09T10:00:00.000Z', updatedAt: '2026-08-09T10:00:00.000Z' }],
+      lastSeq: 7,
+    })
+    const stream = sseRoute()
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL): Promise<Response> => {
+      if (String(url).includes('/api/events/stream')) return stream.route.response
+      throw new Error('network down')
+    }))
+
+    renderApp()
+
+    // Restored data shows immediately even though the pull (and POST) failed.
+    await screen.findByText('Offline List')
+  })
+
+  it('opens the stream at the restored lastSeq AFTER the initial pull has completed', async () => {
+    seedSnapshot({
+      lists: [{ id: 'list-24', name: 'List 24', version: 1, createdAt: '2026-08-09T10:00:00.000Z', updatedAt: '2026-08-09T10:00:00.000Z' }],
+      lastSeq: 24,
+    })
+    const stream = sseRoute()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events?since=24', response: jsonResponse({ events: [], lastSeq: 24 }) },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 24 }) },
+      stream.route,
+    ])
+
+    renderApp()
+
+    // Wait until the boot pull resolved and the restored data rendered, then
+    // pin: the stream fetch uses since=24 and happens strictly after the
+    // since=24 pull (never before it, and never with since=0).
+    await vi.waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([url]) => String(url))
+      const pullIdx = urls.findIndex(u => u.includes('/api/events?since=24'))
+      const streamIdx = urls.findIndex(u => u.includes('/api/events/stream?since=24'))
+      expect(pullIdx).toBeGreaterThanOrEqual(0)
+      expect(streamIdx).toBeGreaterThan(pullIdx)
+    })
+    const urls = fetchMock.mock.calls.map(([url]) => String(url))
+    const streamUrls = urls.filter(u => u.includes('/api/events/stream'))
+    expect(streamUrls).toHaveLength(1)
+    expect(streamUrls[0]).toContain('since=24')
   })
 })

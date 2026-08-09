@@ -3,6 +3,10 @@ import type { Mock } from 'vitest'
 import { apiClient } from './client'
 import type { AppEvent } from '../types/event'
 import type { ServerEvent } from './transport'
+import type {
+  Shop, Item, Tag, List, ListItem, ShoppingSession, SessionItem,
+  ItemShop, ItemTag, ListItemSkippedShop,
+} from '../types'
 
 // Pinned transport behavior exercised here:
 // - loadData() = pull (GET /api/events?since=<lastSeq>) + sync() (POST outbox).
@@ -82,8 +86,64 @@ function getUrls(fetchMock: Mock): string[] {
   return fetchMock.mock.calls.map(([url]) => String(url))
 }
 
+// ── Offline-first snapshot contract ─────────────────────────────────────────────
+// The client persists its state to localStorage as a single JSON blob under
+// SNAPSHOT_KEY so a page refresh restores everything without re-downloading the
+// whole event log. Documented shape (used by seedSnapshot below AND written by
+// the implementation on every mutation/sync):
+// {
+//   shops, items, tags, lists, listItems, itemShops, itemTags,
+//   listItemSkippedShops, shoppingSessions, sessionItems,  // entity data
+//   outbox: AppEvent[],                                    // unpublished events
+//   lastSeq, lamport, clientId, lastTs                     // stream position etc.
+// }
+
+const SNAPSHOT_KEY = 'grocery-snapshot'
+
+type Snapshot = {
+  shops: Shop[]
+  items: Item[]
+  tags: Tag[]
+  lists: List[]
+  listItems: ListItem[]
+  itemShops: ItemShop[]
+  itemTags: ItemTag[]
+  listItemSkippedShops: ListItemSkippedShop[]
+  shoppingSessions: ShoppingSession[]
+  sessionItems: SessionItem[]
+  outbox: AppEvent[]
+  lastSeq: number
+  lamport: number
+  clientId: string
+  lastTs: number
+}
+
+function seedSnapshot(partial: Partial<Snapshot> = {}): Snapshot {
+  const snap: Snapshot = {
+    shops: [],
+    items: [],
+    tags: [],
+    lists: [],
+    listItems: [],
+    itemShops: [],
+    itemTags: [],
+    listItemSkippedShops: [],
+    shoppingSessions: [],
+    sessionItems: [],
+    outbox: [],
+    lastSeq: 0,
+    lamport: 0,
+    clientId: 'snapshot-client',
+    lastTs: 0,
+    ...partial,
+  }
+  localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap))
+  return snap
+}
+
 beforeEach(() => {
   apiClient.reset()
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -403,5 +463,179 @@ describe('connectStream', () => {
     await apiClient.createShop({ name: 'Local', color: '#000000' })
     expect(received.at(-1)!.lamport).toBeGreaterThan(50)
     unsubscribe()
+  })
+})
+
+// ── offline-first localStorage persistence ─────────────────────────────────────
+
+describe('localStorage persistence (offline-first)', () => {
+  it('persists entities, lastSeq, and an empty outbox after a mutation auto-syncs', async () => {
+    mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 5 }) },
+    ])
+
+    const shop = await apiClient.createShop({ name: 'S', color: '#00ff00' })
+    await tick()
+    await tick()
+
+    const raw = localStorage.getItem(SNAPSHOT_KEY)
+    expect(raw).not.toBeNull()
+    const snap = JSON.parse(raw!) as Snapshot
+    expect(snap.shops).toEqual([
+      expect.objectContaining({ id: shop.id, name: 'S', color: '#00ff00', version: 1 }),
+    ])
+    expect(snap.lastSeq).toBe(5)
+    expect(snap.outbox).toEqual([])
+    expect(typeof snap.clientId).toBe('string')
+    expect(snap.clientId.length).toBeGreaterThan(0)
+    expect(snap.lamport).toBeGreaterThanOrEqual(1)
+    expect(typeof snap.lastTs).toBe('number')
+  })
+
+  it('restores the snapshot and pulls only events after the persisted lastSeq', async () => {
+    const outboxEvt: AppEvent = {
+      id: 'evt-outbox-1',
+      clientId: 'snapshot-client',
+      lamport: 4,
+      timestamp: '2026-08-09T11:00:00.000Z',
+      entityId: 'shop-pending',
+      type: 'ShopCreated',
+      payload: { name: 'Pending Shop', color: '#123456' },
+    }
+    seedSnapshot({
+      shops: [
+        { id: 'shop-restored', name: 'Restored Shop', color: '#ff0000', version: 1, updatedAt: '2026-08-09T10:00:00.000Z' },
+        { id: 'shop-pending', name: 'Pending Shop', color: '#123456', version: 1, updatedAt: '2026-08-09T11:00:00.000Z' },
+      ],
+      lists: [
+        { id: 'list-restored', name: 'Restored List', version: 1, createdAt: '2026-08-09T10:00:00.000Z', updatedAt: '2026-08-09T10:00:00.000Z' },
+      ],
+      outbox: [outboxEvt],
+      lastSeq: 24,
+      lamport: 4,
+    })
+    const fetchMock = mockFetch([
+      {
+        method: 'GET',
+        url: '/api/events?since=24',
+        response: jsonResponse({
+          events: [remoteEvent('ListCreated', 'list-new', { name: 'New List' }, 25, 10)],
+          lastSeq: 25,
+        }),
+      },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 25 }) },
+    ])
+
+    await apiClient.loadData()
+
+    // (1) incremental pull from the persisted position — never a full replay
+    expect(getUrls(fetchMock).filter(u => u.includes('/api/events?since=0'))).toHaveLength(0)
+    expect(getUrls(fetchMock).filter(u => u.includes('/api/events?since=24'))).toHaveLength(1)
+
+    // (2) the restored entities are readable
+    const shops = await apiClient.getShops()
+    expect(shops.map(s => s.name)).toEqual(expect.arrayContaining(['Restored Shop', 'Pending Shop']))
+    const lists = await apiClient.getLists()
+    expect(lists.map(l => l.name)).toEqual(expect.arrayContaining(['Restored List']))
+
+    // (3) the new event from the incremental pull is applied
+    expect(lists.map(l => l.name)).toContain('New List')
+
+    // (4) the restored outbox is POSTed with its ORIGINAL id (server dedupes)
+    const sent = postBodies(fetchMock).flatMap(b => b.events)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!).toEqual(outboxEvt)
+
+    // the snapshot advanced past the pull
+    const after = JSON.parse(localStorage.getItem(SNAPSHOT_KEY)!) as Snapshot
+    expect(after.lastSeq).toBe(25)
+    expect(after.outbox).toEqual([])
+  })
+
+  it('boots offline: restores state without throwing and keeps the outbox for a later retry', async () => {
+    const outboxEvt: AppEvent = {
+      id: 'evt-outbox-1',
+      clientId: 'snapshot-client',
+      lamport: 4,
+      timestamp: '2026-08-09T11:00:00.000Z',
+      entityId: 'shop-pending',
+      type: 'ShopCreated',
+      payload: { name: 'Pending Shop', color: '#123456' },
+    }
+    seedSnapshot({
+      shops: [
+        { id: 'shop-restored', name: 'Restored Shop', color: '#ff0000', version: 1, updatedAt: '2026-08-09T10:00:00.000Z' },
+        { id: 'shop-pending', name: 'Pending Shop', color: '#123456', version: 1, updatedAt: '2026-08-09T11:00:00.000Z' },
+      ],
+      lists: [
+        { id: 'list-restored', name: 'Restored List', version: 1, createdAt: '2026-08-09T10:00:00.000Z', updatedAt: '2026-08-09T10:00:00.000Z' },
+      ],
+      outbox: [outboxEvt],
+      lastSeq: 24,
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down') }))
+
+    // the pull (and the POST attempt) fail, but the boot must not throw
+    await expect(apiClient.loadData()).resolves.toBeUndefined()
+
+    // the restored entities are still readable
+    expect(await apiClient.getShops()).toHaveLength(2)
+    expect(await apiClient.getLists()).toHaveLength(1)
+
+    // the outbox survived the failed boot: a later sync() POSTs it with the same id
+    const fetchMock = mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 25 }) },
+    ])
+    await apiClient.sync()
+
+    const sent = postBodies(fetchMock).flatMap(b => b.events)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.id).toBe('evt-outbox-1')
+    expect(sent[0]!.clientId).toBe('snapshot-client')
+    expect(sent[0]!.type).toBe('ShopCreated')
+
+    const after = JSON.parse(localStorage.getItem(SNAPSHOT_KEY)!) as Snapshot
+    expect(after.lastSeq).toBe(25)
+    expect(after.outbox).toEqual([])
+  })
+
+  it('opens the stream at the persisted lastSeq after a restore boot', async () => {
+    seedSnapshot({
+      lists: [
+        { id: 'list-restored', name: 'Restored List', version: 1, createdAt: '2026-08-09T10:00:00.000Z', updatedAt: '2026-08-09T10:00:00.000Z' },
+      ],
+      lastSeq: 24,
+    })
+    const { response, feed } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events?since=24', response: jsonResponse({ events: [], lastSeq: 24 }) },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 24 }) },
+      { method: 'GET', url: '/api/events/stream?since=24', response },
+    ])
+
+    await apiClient.loadData()
+    const unsubscribe = apiClient.connectStream()
+
+    const urls = getUrls(fetchMock)
+    expect(urls.at(-1)!).toContain('/api/events/stream?since=24')
+    expect(urls.filter(u => u.includes('/api/events/stream?since=0'))).toHaveLength(0)
+
+    // the stream is live from the restored position
+    feed(remoteEvent('ShopCreated', 'shop-live', { name: 'Live', color: '#abcdef' }, 26, 11))
+    await tick()
+    expect(await apiClient.getShops()).toHaveLength(1)
+    unsubscribe()
+  })
+
+  it('reset() clears the persisted snapshot from localStorage', async () => {
+    seedSnapshot({
+      shops: [{ id: 'shop-r', name: 'R', color: '#000000', version: 1, updatedAt: '2026-08-09T10:00:00.000Z' }],
+      lastSeq: 9,
+    })
+    expect(localStorage.getItem(SNAPSHOT_KEY)).not.toBeNull()
+
+    apiClient.reset()
+
+    expect(localStorage.getItem(SNAPSHOT_KEY)).toBeNull()
   })
 })
