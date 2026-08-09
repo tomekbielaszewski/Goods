@@ -5,7 +5,6 @@ export interface EventBase {
   timestamp: string
   entityId: string
   type: string
-  payload: object
 }
 
 export type AppEvent =
