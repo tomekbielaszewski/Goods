@@ -1,7 +1,7 @@
 # Plan: Granular-Event API Client (Path B)
 
 **Branch:** `sync_rework`
-**Status:** Approved — ready for TDD execution
+**Status:** Executed — merged via PR #7 (test/granular-events → sync_rework). Kept as design record; the implementation is the source of truth.
 **Scope:** Frontend only. Backend is slated for a full rewrite and is completely out of scope.
 
 ## Context
@@ -284,10 +284,14 @@ Actions are reimplemented as thin wrappers over the named methods; **signatures 
 2. **implementer** agent: implements Phases 1-4 until green. Never edits test files.
 3. Both run the full suite and report counts.
 
+Note: in this environment `test-writer`/`implementer` subagent types were not registered; the two
+roles were executed via `general` agents with strict role constraints (writer commits tests only,
+implementer never touches test files).
+
 ## Verification
 
-- `npm test` — full frontend suite passes (186+ tests)
-- `npm run typecheck` — no errors
+- `npm test` — full frontend suite passes (207 tests at time of execution)
+- `npm run typecheck` — no errors (executed via `npx tsc -b`; no `typecheck` script exists)
 - No Go changes; backend tests untouched (not run as part of this work)
 
 ## Future work (not now)
