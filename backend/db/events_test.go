@@ -174,6 +174,27 @@ func TestGetEventsSinceOrderingAndLimit(t *testing.T) {
 	assert.Empty(t, afterLast)
 }
 
+func TestGetEventsSinceExposesServerSeq(t *testing.T) {
+	d := openTestDB(t)
+	_, err := InsertEvents(d,
+		makeEvent("e1", "ShopCreated", "s1", `{"name":"A","color":"#1"}`, 1),
+		makeEvent("e2", "ShopCreated", "s2", `{"name":"B","color":"#2"}`, 2),
+		makeEvent("e3", "ShopCreated", "s3", `{"name":"C","color":"#3"}`, 3),
+	)
+	require.NoError(t, err)
+
+	all, err := GetEventsSince(d, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.Equal(t, []int64{1, 2, 3}, []int64{all[0].Seq, all[1].Seq, all[2].Seq},
+		"events carry their server-assigned seq in insert order")
+
+	fromSeq2, err := GetEventsSince(d, 2, 0)
+	require.NoError(t, err)
+	require.Len(t, fromSeq2, 1)
+	assert.Equal(t, int64(3), fromSeq2[0].Seq)
+}
+
 func TestLastSeq(t *testing.T) {
 	d := openTestDB(t)
 	seq, err := LastSeq(d)
