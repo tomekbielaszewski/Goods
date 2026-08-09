@@ -531,6 +531,25 @@ describe('lists', () => {
     expect((await apiClient.getList(list.id))?.archivedAt).toBe(ev.payload.archivedAt)
   })
 
+  it('unarchiveList emits ListUnarchived and clears archivedAt in the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    await apiClient.archiveList(list.id)
+    let unarchived!: List
+    const events = await capture(async () => {
+      unarchived = await apiClient.unarchiveList(list.id)
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListUnarchived')
+    expect(ev.entityId).toBe(list.id)
+    expect(ev.payload).toEqual({})
+
+    expect(unarchived.archivedAt).toBeUndefined()
+    expect((await apiClient.getList(list.id))?.archivedAt).toBeUndefined()
+  })
+
   it('deleteList emits ListDeleted and keeps the entity in the Map', async () => {
     const list = await apiClient.createList('Weekly')
     const events = await capture(() => apiClient.deleteList(list.id))
@@ -823,5 +842,29 @@ describe('sessions', () => {
     expect(items[0]!.frequency).toBe(2)
     expect(items[0]!.lastBoughtAt).toBe('2024-01-02T10:00:00.000Z')
     expect(items[0]!.lastBoughtShopId).toBe(shop.id)
+  })
+})
+
+// ── Bug reports ────────────────────────────────────────────────────────────────
+
+describe('bug reports', () => {
+  it('reportBug emits BugReported with the text and a report id as entityId', async () => {
+    let reportId!: string
+    const events = await capture(async () => {
+      reportId = await apiClient.reportBug('App crashed on list view')
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('BugReported')
+    expect(ev.entityId).toBe(reportId)
+    expect(ev.payload).toEqual({ text: 'App crashed on list view' })
+  })
+
+  it('reportBug advances the lamport clock like any other event', async () => {
+    await apiClient.createShop({ name: 'Lidl', color: '#f00' })
+    const events = await capture(() => apiClient.reportBug('another bug'))
+    expect(events[0]!.lamport).toBe(2)
   })
 })

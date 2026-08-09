@@ -35,6 +35,7 @@ function payloadValue(e: AppEvent): string {
     case 'ListCreated': return e.payload.name
     case 'ListRenamed': return e.payload.name
     case 'ListArchived': return e.payload.archivedAt
+    case 'ListUnarchived': return ''
     case 'ListDeleted': return e.payload.deletedAt
     case 'ListItemAdded': return e.payload.itemId
     case 'ListItemStateChanged': return e.payload.state
@@ -45,6 +46,7 @@ function payloadValue(e: AppEvent): string {
     case 'ShoppingSessionStarted': return e.payload.listId
     case 'SessionItemBought': return e.payload.itemId
     case 'SessionItemSkipped': return e.payload.itemId
+    case 'BugReported': return e.payload.text
     default: return assertNever(e)
   }
 }
@@ -102,6 +104,7 @@ describe('AppEvent union', () => {
       make('ListCreated', { name: 'Weekly' }),
       make('ListRenamed', { name: 'Monthly' }),
       make('ListArchived', { archivedAt: '2024-01-01T00:00:00.000Z' }),
+      make('ListUnarchived', {}),
       make('ListDeleted', { deletedAt: '2024-01-01T00:00:00.000Z' }),
       make('ListItemAdded', { listId: 'l1', itemId: 'i1', state: 'active' }),
       make('ListItemStateChanged', { state: 'bought' }),
@@ -112,6 +115,7 @@ describe('AppEvent union', () => {
       make('ShoppingSessionStarted', { listId: 'l1', shopId: 's1' }),
       make('SessionItemBought', { itemId: 'i1', quantity: 2 }),
       make('SessionItemSkipped', { itemId: 'i1' }),
+      make('BugReported', { text: 'crashed' }),
     ]
     expect(samples.map(payloadValue).every(v => typeof v === 'string')).toBe(true)
   })

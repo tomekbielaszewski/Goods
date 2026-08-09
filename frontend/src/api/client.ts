@@ -80,6 +80,11 @@ class ApiClient {
 
   private commit(event: EventInput) {
     const stamped = this.stamp(event)
+    console.log(`[event] #${stamped.lamport} ${stamped.type}`, {
+      entityId: stamped.entityId,
+      payload: stamped.payload,
+      timestamp: stamped.timestamp,
+    })
     this.applyEvent(stamped)
     this.events.push(stamped)
     this.outbox.push(stamped)
@@ -171,6 +176,9 @@ class ApiClient {
       case 'ListArchived':
         this.mutate(this.lists, event.entityId, event.payload)
         break
+      case 'ListUnarchived':
+        this.mutate(this.lists, event.entityId, { archivedAt: undefined })
+        break
       case 'ListDeleted':
         this.mutate(this.lists, event.entityId, event.payload)
         break
@@ -215,6 +223,7 @@ class ApiClient {
         break
       case 'SessionItemBought':
       case 'SessionItemSkipped':
+      case 'BugReported':
         break
     }
   }
@@ -370,8 +379,8 @@ class ApiClient {
     input: ItemCreateInput,
     shopIds: string[],
     tagIds: string[],
+    id: string = crypto.randomUUID(),
   ): Promise<Item> {
-    const id = crypto.randomUUID()
     this.commit({ entityId: id, type: 'ItemCreated', payload: { ...input } })
     for (const shopId of shopIds) {
       this.commit({ entityId: id, type: 'ShopAssignedToItem', payload: { shopId } })
@@ -426,8 +435,7 @@ class ApiClient {
     this.commit({ entityId: id, type: 'ItemSoftDeleted', payload: { deletedAt: this.nowIso() } })
   }
 
-  async createList(name: string): Promise<List> {
-    const id = crypto.randomUUID()
+  async createList(name: string, id: string = crypto.randomUUID()): Promise<List> {
     this.commit({ entityId: id, type: 'ListCreated', payload: { name } })
     return this.lists.get(id)!
   }
@@ -445,9 +453,8 @@ class ApiClient {
   async unarchiveList(id: string): Promise<List> {
     const list = this.lists.get(id)
     if (!list) return undefined as unknown as List
-    const updated: List = { ...list, archivedAt: undefined, version: list.version + 1, updatedAt: this.nowIso() }
-    this.lists.set(id, updated)
-    return updated
+    this.commit({ entityId: id, type: 'ListUnarchived', payload: {} })
+    return this.lists.get(id)!
   }
 
   async deleteList(id: string): Promise<void> {
@@ -546,6 +553,12 @@ class ApiClient {
       this.commit({ entityId: input.sessionId, type: 'SessionItemSkipped', payload: { itemId: input.itemId } })
     }
     return si
+  }
+
+  async reportBug(text: string): Promise<string> {
+    const id = crypto.randomUUID()
+    this.commit({ entityId: id, type: 'BugReported', payload: { text } })
+    return id
   }
 
   private enrichItems(items: Item[]): ItemWithDetails[] {
