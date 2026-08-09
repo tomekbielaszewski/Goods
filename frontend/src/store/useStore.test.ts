@@ -6,29 +6,36 @@ const { mockApi } = vi.hoisted(() => ({
     reset: vi.fn(),
     getShops: vi.fn(),
     createShop: vi.fn(),
-    updateShop: vi.fn(),
-    deleteShop: vi.fn(),
+    renameShop: vi.fn(),
+    changeShopColor: vi.fn(),
+    softDeleteShop: vi.fn(),
     getTags: vi.fn(),
     createTag: vi.fn(),
-    deleteTag: vi.fn(),
     getItemsWithDetails: vi.fn(),
     getItemWithDetails: vi.fn(),
-    upsertItem: vi.fn(),
-    addItemToShop: vi.fn(),
-    removeItemFromShop: vi.fn(),
+    createItem: vi.fn(),
+    updateItem: vi.fn(),
+    saveItemShopsAndTags: vi.fn(),
+    assignShopToItem: vi.fn(),
+    removeShopFromItem: vi.fn(),
+    assignTagToItem: vi.fn(),
+    removeTagFromItem: vi.fn(),
     getItemsForShop: vi.fn(),
     isEmpty: vi.fn(),
     getLists: vi.fn(),
-    upsertList: vi.fn(),
+    createList: vi.fn(),
+    renameList: vi.fn(),
     deleteList: vi.fn(),
     cloneList: vi.fn(),
     getListItemsWithItems: vi.fn(),
-    upsertListItem: vi.fn(),
-    updateListItemState: vi.fn(),
+    addListItem: vi.fn(),
+    setListItemState: vi.fn(),
+    changeListItemQuantity: vi.fn(),
+    removeListItem: vi.fn(),
     skipShopForListItem: vi.fn(),
     clearSkipForListItem: vi.fn(),
     getFrequentItems: vi.fn(),
-    createShoppingSession: vi.fn(),
+    startShoppingSession: vi.fn(),
     recordSessionItem: vi.fn(),
     getSessionItems: vi.fn(),
   },
@@ -97,12 +104,6 @@ describe('useStore — loadData', () => {
     const shops: Shop[] = [{ id: 's1', name: 'Shop', color: '#f00', version: 1, updatedAt: '2024-01-01T00:00:00Z' }]
     const tags: Tag[] = [{ id: 't1', name: 'dairy' }]
     const lists: List[] = [{ id: 'l1', name: 'List', version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }]
-    const listItems: ListItem[] = [{ id: 'li1', listId: 'l1', itemId: 'i1', state: 'active', version: 1, addedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }]
-    const sessions: ShoppingSession[] = [{ id: 'ss1', listId: 'l1', shopId: 's1', startedAt: '2024-01-01T00:00:00Z', version: 1 }]
-    const sessionItems: SessionItem[] = [{ id: 'si1', sessionId: 'ss1', itemId: 'i1', action: 'bought', at: '2024-01-01T00:00:00Z' }]
-    const itemShops = [{ itemId: 'i1', shopId: 's1' }]
-    const itemTags = [{ itemId: 'i1', tagId: 't1' }]
-    const listItemSkippedShops = [{ listItemId: 'li1', shopId: 's1', skippedAt: '2024-01-01T00:00:00Z' }]
 
     mockApi.getShops.mockResolvedValue(shops)
     mockApi.getTags.mockResolvedValue(tags)
@@ -132,24 +133,49 @@ describe('useStore — shop actions', () => {
     expect(useStore.getState().shops).toEqual([shop])
   })
 
-  it('updateShop calls apiClient.updateShop and updates state', async () => {
+  it('updateShop with a name patch calls renameShop only', async () => {
     const shop: Shop = { id: 's1', name: 'New', color: '#f00', version: 1, updatedAt: '2024-01-01T00:00:00Z' }
-    const updated: Shop = { ...shop, name: 'Updated', version: 2 }
+    const updated: Shop = { ...shop, name: 'Renamed', version: 2 }
     useStore.setState({ shops: [shop] })
-    mockApi.updateShop.mockResolvedValue(updated)
+    mockApi.renameShop.mockResolvedValue(updated)
 
-    await useStore.getState().updateShop('s1', { name: 'Updated' })
-    expect(mockApi.updateShop).toHaveBeenCalledWith('s1', { name: 'Updated' })
-    expect(useStore.getState().shops[0]!.name).toBe('Updated')
+    await useStore.getState().updateShop('s1', { name: 'Renamed' })
+    expect(mockApi.renameShop).toHaveBeenCalledWith('s1', 'Renamed')
+    expect(mockApi.changeShopColor).not.toHaveBeenCalled()
+    expect(useStore.getState().shops[0]!.name).toBe('Renamed')
   })
 
-  it('deleteShop calls apiClient.deleteShop and removes from state', async () => {
+  it('updateShop with a color patch calls changeShopColor only', async () => {
+    const shop: Shop = { id: 's1', name: 'New', color: '#f00', version: 1, updatedAt: '2024-01-01T00:00:00Z' }
+    const updated: Shop = { ...shop, color: '#00f', version: 2 }
+    useStore.setState({ shops: [shop] })
+    mockApi.changeShopColor.mockResolvedValue(updated)
+
+    await useStore.getState().updateShop('s1', { color: '#00f' })
+    expect(mockApi.changeShopColor).toHaveBeenCalledWith('s1', '#00f')
+    expect(mockApi.renameShop).not.toHaveBeenCalled()
+    expect(useStore.getState().shops[0]!.color).toBe('#00f')
+  })
+
+  it('updateShop with name and color patch calls both methods', async () => {
+    const shop: Shop = { id: 's1', name: 'New', color: '#f00', version: 1, updatedAt: '2024-01-01T00:00:00Z' }
+    const updated: Shop = { ...shop, name: 'Renamed', color: '#00f', version: 2 }
+    useStore.setState({ shops: [shop] })
+    mockApi.renameShop.mockResolvedValue(updated)
+    mockApi.changeShopColor.mockResolvedValue(updated)
+
+    await useStore.getState().updateShop('s1', { name: 'Renamed', color: '#00f' })
+    expect(mockApi.renameShop).toHaveBeenCalledWith('s1', 'Renamed')
+    expect(mockApi.changeShopColor).toHaveBeenCalledWith('s1', '#00f')
+  })
+
+  it('deleteShop calls apiClient.softDeleteShop and removes from state', async () => {
     const shop: Shop = { id: 's1', name: 'New', color: '#f00', version: 1, updatedAt: '2024-01-01T00:00:00Z' }
     useStore.setState({ shops: [shop] })
-    mockApi.deleteShop.mockResolvedValue(undefined)
+    mockApi.softDeleteShop.mockResolvedValue(undefined)
 
     await useStore.getState().deleteShop('s1')
-    expect(mockApi.deleteShop).toHaveBeenCalledWith('s1')
+    expect(mockApi.softDeleteShop).toHaveBeenCalledWith('s1')
     expect(useStore.getState().shops).toEqual([])
   })
 })
@@ -170,37 +196,77 @@ describe('useStore — tag actions', () => {
 // ── Item actions ───────────────────────────────────────────────────────────────
 
 describe('useStore — item actions', () => {
-  it('upsertItem calls apiClient.upsertItem', async () => {
-    const item = { id: 'i1', name: 'Milk', version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' } as Item
-    mockApi.upsertItem.mockResolvedValue(item)
+  it('upsertItem with a new item calls createItem + saveItemShopsAndTags', async () => {
+    const item: Item = {
+      id: 'i1', name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note',
+      version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    }
+    mockApi.createItem.mockResolvedValue(item)
 
     await useStore.getState().upsertItem(item, ['s1'], ['t1'])
-    expect(mockApi.upsertItem).toHaveBeenCalledWith(item, ['s1'], ['t1'])
+    expect(mockApi.createItem).toHaveBeenCalledWith(
+      { name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note' },
+      ['s1'],
+      ['t1'],
+    )
+    expect(mockApi.saveItemShopsAndTags).toHaveBeenCalledWith('i1', ['s1'], ['t1'])
+    expect(mockApi.updateItem).not.toHaveBeenCalled()
   })
 
-  it('addItemToShop calls apiClient.addItemToShop', async () => {
-    mockApi.addItemToShop.mockResolvedValue(undefined)
+  it('upsertItem with an existing item calls updateItem (changed fields) + saveItemShopsAndTags', async () => {
+    const existing: Item = {
+      id: 'i1', name: 'Milk', unit: 'l', version: 1,
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    }
+    const incoming: Item = {
+      id: 'i1', name: 'Skimmed Milk', unit: 'l', version: 1,
+      createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    }
+    useStore.setState({ items: [existing] })
+    mockApi.updateItem.mockResolvedValue(incoming)
+
+    await useStore.getState().upsertItem(incoming, ['s1'], ['t1'])
+    expect(mockApi.updateItem).toHaveBeenCalledWith('i1', { name: 'Skimmed Milk' })
+    expect(mockApi.saveItemShopsAndTags).toHaveBeenCalledWith('i1', ['s1'], ['t1'])
+    expect(mockApi.createItem).not.toHaveBeenCalled()
+  })
+
+  it('addItemToShop calls apiClient.assignShopToItem', async () => {
+    mockApi.assignShopToItem.mockResolvedValue(undefined)
     await useStore.getState().addItemToShop('i1', 's1')
-    expect(mockApi.addItemToShop).toHaveBeenCalledWith('i1', 's1')
+    expect(mockApi.assignShopToItem).toHaveBeenCalledWith('i1', 's1')
   })
 
-  it('removeItemFromShop calls apiClient.removeItemFromShop', async () => {
-    mockApi.removeItemFromShop.mockResolvedValue(undefined)
+  it('removeItemFromShop calls apiClient.removeShopFromItem', async () => {
+    mockApi.removeShopFromItem.mockResolvedValue(undefined)
     await useStore.getState().removeItemFromShop('i1', 's1')
-    expect(mockApi.removeItemFromShop).toHaveBeenCalledWith('i1', 's1')
+    expect(mockApi.removeShopFromItem).toHaveBeenCalledWith('i1', 's1')
   })
 })
 
 // ── List actions ───────────────────────────────────────────────────────────────
 
 describe('useStore — list actions', () => {
-  it('upsertList calls apiClient.upsertList and updates state', async () => {
+  it('upsertList with a new list calls createList and appends to state', async () => {
     const list: List = { id: 'l1', name: 'List', version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }
-    mockApi.upsertList.mockResolvedValue(list)
+    mockApi.createList.mockResolvedValue(list)
 
     await useStore.getState().upsertList(list)
-    expect(mockApi.upsertList).toHaveBeenCalledWith(list)
+    expect(mockApi.createList).toHaveBeenCalledWith('List')
+    expect(mockApi.renameList).not.toHaveBeenCalled()
     expect(useStore.getState().lists).toEqual([list])
+  })
+
+  it('upsertList with an existing list calls renameList and updates state', async () => {
+    const list: List = { id: 'l1', name: 'Old Name', version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }
+    const renamed: List = { ...list, name: 'New Name', version: 2 }
+    useStore.setState({ lists: [list] })
+    mockApi.renameList.mockResolvedValue(renamed)
+
+    await useStore.getState().upsertList({ ...renamed })
+    expect(mockApi.renameList).toHaveBeenCalledWith('l1', 'New Name')
+    expect(mockApi.createList).not.toHaveBeenCalled()
+    expect(useStore.getState().lists).toEqual([renamed])
   })
 
   it('deleteList calls apiClient.deleteList and removes from state', async () => {
@@ -228,22 +294,54 @@ describe('useStore — list actions', () => {
 // ── ListItem actions ───────────────────────────────────────────────────────────
 
 describe('useStore — listItem actions', () => {
-  it('upsertListItem calls apiClient.upsertListItem', async () => {
-    const li: ListItem = { id: 'li1', listId: 'l1', itemId: 'i1', state: 'active', version: 1, addedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }
-    mockApi.upsertListItem.mockResolvedValue(li)
-
-    await useStore.getState().upsertListItem(li)
-    expect(mockApi.upsertListItem).toHaveBeenCalledWith(li)
+  const makeLi = (overrides: Partial<ListItem> = {}): ListItem => ({
+    id: 'li1', listId: 'l1', itemId: 'i1', state: 'active', quantity: 2, unit: 'l', notes: 'note',
+    version: 1, addedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    ...overrides,
   })
 
-  it('updateListItemState calls apiClient.updateListItemState', async () => {
-    const li: ListItem = { id: 'li1', listId: 'l1', itemId: 'i1', state: 'active', version: 1, addedAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }
+  it('upsertListItem with a new listItem calls addListItem (id generated internally)', async () => {
+    const li = makeLi()
+    mockApi.addListItem.mockResolvedValue(li)
+
+    await useStore.getState().upsertListItem(li)
+    expect(mockApi.addListItem).toHaveBeenCalledWith({
+      listId: 'l1', itemId: 'i1', state: 'active', quantity: 2, unit: 'l', notes: 'note',
+    })
+    expect(mockApi.setListItemState).not.toHaveBeenCalled()
+    expect(mockApi.changeListItemQuantity).not.toHaveBeenCalled()
+  })
+
+  it('upsertListItem with a state diff calls setListItemState', async () => {
+    const existing = makeLi()
+    useStore.setState({ listItems: [existing] })
+    mockApi.setListItemState.mockResolvedValue({ ...existing, state: 'bought' })
+
+    await useStore.getState().upsertListItem(makeLi({ state: 'bought' }))
+    expect(mockApi.setListItemState).toHaveBeenCalledWith('li1', 'bought')
+    expect(mockApi.changeListItemQuantity).not.toHaveBeenCalled()
+    expect(mockApi.addListItem).not.toHaveBeenCalled()
+  })
+
+  it('upsertListItem with a quantity/unit diff calls changeListItemQuantity', async () => {
+    const existing = makeLi()
+    useStore.setState({ listItems: [existing] })
+    mockApi.changeListItemQuantity.mockResolvedValue({ ...existing, quantity: 5, unit: 'kg' })
+
+    await useStore.getState().upsertListItem(makeLi({ quantity: 5, unit: 'kg' }))
+    expect(mockApi.changeListItemQuantity).toHaveBeenCalledWith('li1', 5, 'kg')
+    expect(mockApi.setListItemState).not.toHaveBeenCalled()
+    expect(mockApi.addListItem).not.toHaveBeenCalled()
+  })
+
+  it('updateListItemState calls apiClient.setListItemState', async () => {
+    const li = makeLi()
     const updated: ListItem = { ...li, state: 'bought' }
     useStore.setState({ listItems: [li] })
-    mockApi.updateListItemState.mockResolvedValue(updated)
+    mockApi.setListItemState.mockResolvedValue(updated)
 
     await useStore.getState().updateListItemState('li1', 'bought')
-    expect(mockApi.updateListItemState).toHaveBeenCalledWith('li1', 'bought')
+    expect(mockApi.setListItemState).toHaveBeenCalledWith('li1', 'bought')
   })
 
   it('skipShopForListItem calls apiClient.skipShopForListItem', async () => {
@@ -262,12 +360,12 @@ describe('useStore — listItem actions', () => {
 // ── Session actions ────────────────────────────────────────────────────────────
 
 describe('useStore — session actions', () => {
-  it('createShoppingSession calls apiClient.createShoppingSession', async () => {
+  it('createShoppingSession calls apiClient.startShoppingSession', async () => {
     const session: ShoppingSession = { id: 'ss1', listId: 'l1', shopId: 's1', startedAt: '2024-01-01T00:00:00Z', version: 1 }
-    mockApi.createShoppingSession.mockResolvedValue(session)
+    mockApi.startShoppingSession.mockResolvedValue(session)
 
     await useStore.getState().createShoppingSession('l1', 's1')
-    expect(mockApi.createShoppingSession).toHaveBeenCalledWith('l1', 's1')
+    expect(mockApi.startShoppingSession).toHaveBeenCalledWith('l1', 's1')
   })
 
   it('recordSessionItem calls apiClient.recordSessionItem', async () => {
