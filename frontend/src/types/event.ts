@@ -24,6 +24,7 @@ export type AppEvent =
   | (EventBase & { type: 'ListCreated'; payload: { name: string } })
   | (EventBase & { type: 'ListRenamed'; payload: { name: string } })
   | (EventBase & { type: 'ListArchived'; payload: { archivedAt: string } })
+  | (EventBase & { type: 'ListUnarchived'; payload: {} })
   | (EventBase & { type: 'ListDeleted'; payload: { deletedAt: string } })
   | (EventBase & { type: 'ListItemAdded'; payload: { listId: string; itemId: string; state: 'active' | 'bought'; quantity?: number; unit?: string; notes?: string } })
   | (EventBase & { type: 'ListItemStateChanged'; payload: { state: 'active' | 'bought' } })
@@ -34,3 +35,4 @@ export type AppEvent =
   | (EventBase & { type: 'ShoppingSessionStarted'; payload: { listId: string; shopId: string } })
   | (EventBase & { type: 'SessionItemBought'; payload: { itemId: string; quantity?: number; unit?: string } })
   | (EventBase & { type: 'SessionItemSkipped'; payload: { itemId: string } })
+  | (EventBase & { type: 'BugReported'; payload: { text: string } })

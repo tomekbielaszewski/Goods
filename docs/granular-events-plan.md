@@ -86,6 +86,7 @@ type AppEvent =
   | ListCreated      { name: string }
   | ListRenamed      { name: string }
   | ListArchived     { archivedAt: string }
+  | ListUnarchived   {}
   | ListDeleted      { deletedAt: string }
   // List items
   | ListItemAdded        { listId: string; itemId: string; state: 'active' | 'bought'; quantity?: number; unit?: string; notes?: string }
@@ -99,6 +100,8 @@ type AppEvent =
   | ShoppingSessionStarted { listId: string; shopId: string }
   | SessionItemBought   { itemId: string; quantity?: number; unit?: string }
   | SessionItemSkipped  { itemId: string }
+  // Telemetry (outbox-queued, no projection effect)
+  | BugReported         { text: string }
 ```
 
 Payload-less events carry `{}` payloads so `payload` is always defined.
