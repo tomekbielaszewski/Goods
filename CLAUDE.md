@@ -19,13 +19,13 @@
 
 For every new feature, use the two specialist subagents in sequence:
 
-1. **test-writer** agent — explores the codebase, writes ONLY failing tests, commits them to `test/<feature-name>` branch. Never writes implementation code.
+1. **test-writer** agent — explores the codebase, writes ONLY failing tests, commits them on the current branch. Never writes implementation code.
 2. **implementer** agent — runs failing tests, writes minimal implementation code to pass them, iterates until `npm test`, `npm run typecheck`, and `go test ./...` all pass. Never edits test files.
 
 **Invoke via:**
 ```
 Agent(subagent_type="test-writer", prompt="Write failing tests for: <feature description>")
-Agent(subagent_type="implementer", prompt="Make the failing tests on branch test/<feature-name> pass")
+Agent(subagent_type="implementer", prompt="Make the failing tests pass")
 ```
 
 **Rules:**

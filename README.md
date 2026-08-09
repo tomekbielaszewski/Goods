@@ -96,11 +96,4 @@ npx vitest
 npm run test:coverage
 ```
 
-Tests use `happy-dom` as the browser environment and `fake-indexeddb` for IndexedDB — no real browser or network
-required.
-
----
-
-## API reference
-
-See [docs/api.md](docs/api.md).
+Tests use `happy-dom` as the browser environment — no real browser or network required.
