@@ -196,7 +196,7 @@ describe('useStore — tag actions', () => {
 // ── Item actions ───────────────────────────────────────────────────────────────
 
 describe('useStore — item actions', () => {
-  it('upsertItem with a new item calls createItem + saveItemShopsAndTags', async () => {
+  it('upsertItem with a new item calls createItem with the caller-provided id', async () => {
     const item: Item = {
       id: 'i1', name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note',
       version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
@@ -208,8 +208,9 @@ describe('useStore — item actions', () => {
       { name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note' },
       ['s1'],
       ['t1'],
+      'i1',
     )
-    expect(mockApi.saveItemShopsAndTags).toHaveBeenCalledWith('i1', ['s1'], ['t1'])
+    expect(mockApi.saveItemShopsAndTags).not.toHaveBeenCalled()
     expect(mockApi.updateItem).not.toHaveBeenCalled()
   })
 
@@ -247,12 +248,12 @@ describe('useStore — item actions', () => {
 // ── List actions ───────────────────────────────────────────────────────────────
 
 describe('useStore — list actions', () => {
-  it('upsertList with a new list calls createList and appends to state', async () => {
+  it('upsertList with a new list calls createList with the caller-provided id and appends to state', async () => {
     const list: List = { id: 'l1', name: 'List', version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z' }
     mockApi.createList.mockResolvedValue(list)
 
     await useStore.getState().upsertList(list)
-    expect(mockApi.createList).toHaveBeenCalledWith('List')
+    expect(mockApi.createList).toHaveBeenCalledWith('List', 'l1')
     expect(mockApi.renameList).not.toHaveBeenCalled()
     expect(useStore.getState().lists).toEqual([list])
   })

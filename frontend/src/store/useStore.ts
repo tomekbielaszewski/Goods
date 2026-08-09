@@ -131,8 +131,8 @@ export const useStore = create<AppStore>((set) => ({
         },
         shopIds,
         tagIds,
+        item.id,
       )
-      await apiClient.saveItemShopsAndTags(item.id, shopIds, tagIds)
     }
   },
 
@@ -150,7 +150,7 @@ export const useStore = create<AppStore>((set) => ({
       const saved = await apiClient.renameList(list.id, list.name)
       set(state => ({ lists: state.lists.map(l => l.id === list.id ? saved : l) }))
     } else {
-      const saved = await apiClient.createList(list.name)
+      const saved = await apiClient.createList(list.name, list.id)
       set(state => ({ lists: [...state.lists, saved] }))
     }
   },
