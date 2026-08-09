@@ -22,6 +22,7 @@ const { mockApi } = vi.hoisted(() => ({
     removeTagFromItem: vi.fn(),
     getItemsForShop: vi.fn(),
     isEmpty: vi.fn(),
+    loadData: vi.fn().mockResolvedValue(undefined),
     getLists: vi.fn(),
     createList: vi.fn(),
     renameList: vi.fn(),
@@ -118,6 +119,32 @@ describe('useStore — loadData', () => {
     expect(state.shops).toEqual(shops)
     expect(state.tags).toEqual(tags)
     expect(state.lists).toEqual(lists)
+  })
+
+  it('calls apiClient.loadData() before populating state', async () => {
+    mockApi.loadData.mockResolvedValue(undefined)
+    mockApi.getShops.mockResolvedValue([])
+    mockApi.getTags.mockResolvedValue([])
+    mockApi.getItemsWithDetails.mockResolvedValue([])
+    mockApi.getLists.mockResolvedValue([])
+    mockApi.getListItemsWithItems.mockResolvedValue([])
+
+    await useStore.getState().loadData()
+
+    expect(mockApi.loadData).toHaveBeenCalled()
+    expect(mockApi.loadData.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockApi.getShops.mock.invocationCallOrder[0]!
+    )
+  })
+
+  it('rejects when the backend pull fails', async () => {
+    mockApi.loadData.mockRejectedValue(new Error('down'))
+
+    await expect(useStore.getState().loadData()).rejects.toThrow('down')
+
+    expect(mockApi.getShops).not.toHaveBeenCalled()
+    expect(useStore.getState().shops).toEqual([])
+    expect(useStore.getState().lists).toEqual([])
   })
 })
 
