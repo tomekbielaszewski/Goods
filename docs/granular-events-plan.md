@@ -53,6 +53,15 @@ interface EventBase {
 `clientId` and `lamport` are stamped now (cheap) so the future backend gets ordering + provenance for free;
 they are unused until then.
 
+**`entityId` rule (locked):** `entityId` = the id of the primary aggregate the event mutates:
+creates → the new entity's id (`ItemCreated`, `TagCreated`, `ShopCreated`, `ListCreated`, `ListItemAdded`,
+`ShoppingSessionStarted`); relation events → the item id (`ShopAssignedToItem`, `ShopRemovedFromItem`,
+`TagAssignedToItem`, `TagRemovedFromItem`); list-item events → the listItem id (`ListItemStateChanged`,
+`ListItemQuantityChanged`, `ListItemRemoved`, `ShopSkippedForListItem`, `ShopSkipCleared`); session item
+events → the session id (`SessionItemBought`, `SessionItemSkipped`); otherwise the entity's own id
+(`ShopRenamed`, `ShopColorChanged`, `ShopSoftDeleted`, `TagDeleted`, `ItemUpdated`, `ItemSoftDeleted`,
+`ListRenamed`, `ListArchived`, `ListDeleted`).
+
 ### Event union
 
 ```ts
@@ -140,7 +149,11 @@ Each method builds the event(s) above, commits them, and returns the affected en
 | `createTag(name)` | `TagCreated` | `Tag` |
 | `deleteTag(id)` | `TagDeleted` | `void` |
 | `createItem(input, shopIds, tagIds)` | `ItemCreated` + per-id `ShopAssignedToItem`/`TagAssignedToItem` | `Item` |
-| `updateItem(id, patch)` | `ItemUpdated` (only changed fields) | `Item` |
+| `updateItem(id, patch)` | `ItemUpdated` (only changed fields; **cleared fields included as explicit `undefined`**, e.g. `{ unit: undefined }`) | `Item` |
+| `assignShopToItem(itemId, shopId)` | `ShopAssignedToItem` | `void` |
+| `removeShopFromItem(itemId, shopId)` | `ShopRemovedFromItem` | `void` |
+| `assignTagToItem(itemId, tagId)` | `TagAssignedToItem` | `void` |
+| `removeTagFromItem(itemId, tagId)` | `TagRemovedFromItem` | `void` |
 | `saveItemShopsAndTags(itemId, shopIds, tagIds)` | per-diff `ShopAssignedToItem`/`ShopRemovedFromItem`, `TagAssignedToItem`/`TagRemovedFromItem` | `void` |
 | `softDeleteItem(id)` | `ItemSoftDeleted` | `void` |
 | `createList(name)` | `ListCreated` | `List` |
@@ -160,7 +173,8 @@ Each method builds the event(s) above, commits them, and returns the affected en
 ### `applyEvent` semantics (Map-based, replacing entity writes)
 
 - **Entity events** (`Shop*`, `Tag*`, `Item*`, `List*`, `ListItem*`): create → insert map entry;
-  update → shallow-merge payload onto existing; delete/soft → set `deletedAt` (entities stay in Maps,
+  update → shallow-merge payload onto existing (**explicit `undefined` payload fields overwrite
+  existing values — cleared fields stay cleared**); delete/soft → set `deletedAt` (entities stay in Maps,
   reads filter `deletedAt` — current behavior). `version`/`updatedAt` bumping on each mutation is
   preserved so read callers see identical data.
 - **Relation events** (`ShopAssignedToItem`, `TagAssignedToItem`, ...): push/remove from `itemShops` /
@@ -192,8 +206,8 @@ Actions are reimplemented as thin wrappers over the named methods; **signatures 
 | `deleteShop(id)` | `apiClient.softDeleteShop(id)` → filter `shops` |
 | `addTag(name)` | `apiClient.createTag(name)` → append to `tags` |
 | `upsertItem(item, shopIds, tagIds)` | item exists in store ? `updateItem` + `saveItemShopsAndTags` : `createItem(...)` |
-| `addItemToShop(itemId, shopId)` | `apiClient.assignShopToItem`-style method |
-| `removeItemFromShop(itemId, shopId)` | `apiClient.removeShopFromItem`-style method |
+| `addItemToShop(itemId, shopId)` | `apiClient.assignShopToItem(itemId, shopId)` |
+| `removeItemFromShop(itemId, shopId)` | `apiClient.removeShopFromItem(itemId, shopId)` |
 | `upsertList(list)` | exists ? `renameList` : `createList` |
 | `deleteList(id)` | `apiClient.deleteList(id)` → filter `lists` |
 | `cloneList(id)` | `apiClient.cloneList(id)` → append `lists` |
@@ -244,8 +258,8 @@ Actions are reimplemented as thin wrappers over the named methods; **signatures 
 - line 62: `softDeleteShop(id)`
 
 ### `frontend/src/pages/ShopItemsScreen.tsx`
-- line 39: `removeShopFromItem`-style method
-- line 42: `assignShopToItem`-style method
+- line 39: `removeShopFromItem(item.id, id)`
+- line 42: `assignShopToItem(item.id, id)`
 
 ### Untouched (read-only)
 `SearchInput.tsx`, `SuggestionsPanel.tsx`, `RepositoryScreen.tsx`.
