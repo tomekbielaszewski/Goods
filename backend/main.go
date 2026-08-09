@@ -36,9 +36,10 @@ func main() {
 	r.Use(corsMiddleware)
 
 	// API routes
-	r.Get("/api/bootstrap", handlers.Bootstrap(database))
-	r.Post("/api/sync", handlers.Sync(database))
-	r.Post("/api/report-bug", handlers.ReportBug(database))
+	hub := handlers.NewHub()
+	r.Post("/api/events", handlers.PublishEvents(database, hub))
+	r.Get("/api/events", handlers.GetEvents(database))
+	r.Get("/api/events/stream", handlers.StreamEvents(database, hub))
 	r.Get("/api/bug-reports", handlers.ListBugReports(database))
 	r.Post("/api/bug-reports/{id}/resolve", handlers.ResolveBugReport(database))
 
