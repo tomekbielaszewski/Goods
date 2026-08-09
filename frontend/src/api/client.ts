@@ -21,6 +21,26 @@ type EventInput = AppEvent extends infer U
   ? U extends AppEvent ? Omit<U, 'id' | 'clientId' | 'lamport' | 'timestamp'> : never
   : never
 
+const SNAPSHOT_KEY = 'grocery-snapshot'
+
+type Snapshot = {
+  shops: Shop[]
+  items: Item[]
+  tags: Tag[]
+  lists: List[]
+  listItems: ListItem[]
+  itemShops: ItemShop[]
+  itemTags: ItemTag[]
+  listItemSkippedShops: ListItemSkippedShop[]
+  shoppingSessions: ShoppingSession[]
+  sessionItems: SessionItem[]
+  outbox: AppEvent[]
+  lastSeq: number
+  lamport: number
+  clientId: string
+  lastTs: number
+}
+
 function normalize(s: string) {
   return s.trim().toLowerCase()
     .replace(/ł/g, 'l')
@@ -48,6 +68,7 @@ class ApiClient {
   private lastSeq = 0
   private listeners = new Set<(e: AppEvent) => void>()
   private syncScheduled = false
+  private streamUnsub: (() => void) | null = null
 
   private nowIso(): string {
     const t = Math.max(Date.now(), this.lastTs + 1)
@@ -72,6 +93,57 @@ class ApiClient {
     this.lastSeq = 0
     this.listeners.clear()
     this.syncScheduled = false
+    localStorage.removeItem(SNAPSHOT_KEY)
+  }
+
+  private persist() {
+    const snap: Snapshot = {
+      shops: [...this.shops.values()],
+      items: [...this.items.values()],
+      tags: [...this.tags.values()],
+      lists: [...this.lists.values()],
+      listItems: [...this.listItems.values()],
+      itemShops: this.itemShops,
+      itemTags: this.itemTags,
+      listItemSkippedShops: this.listItemSkippedShops,
+      shoppingSessions: [...this.shoppingSessions.values()],
+      sessionItems: this.sessionItems,
+      outbox: this.outbox,
+      lastSeq: this.lastSeq,
+      lamport: this.lamport,
+      clientId: this.clientId,
+      lastTs: this.lastTs,
+    }
+    try {
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap))
+    } catch {
+      // storage unavailable (private mode / quota): keep running in memory
+    }
+  }
+
+  private restore() {
+    const raw = localStorage.getItem(SNAPSHOT_KEY)
+    if (!raw) return
+    try {
+      const snap = JSON.parse(raw) as Snapshot
+      this.shops = new Map(snap.shops.map(s => [s.id, s]))
+      this.items = new Map(snap.items.map(i => [i.id, i]))
+      this.tags = new Map(snap.tags.map(t => [t.id, t]))
+      this.lists = new Map(snap.lists.map(l => [l.id, l]))
+      this.listItems = new Map(snap.listItems.map(li => [li.id, li]))
+      this.itemShops = snap.itemShops
+      this.itemTags = snap.itemTags
+      this.listItemSkippedShops = snap.listItemSkippedShops
+      this.shoppingSessions = new Map(snap.shoppingSessions.map(s => [s.id, s]))
+      this.sessionItems = snap.sessionItems
+      this.outbox = snap.outbox
+      this.lastSeq = snap.lastSeq
+      this.lamport = snap.lamport
+      this.clientId = snap.clientId
+      this.lastTs = snap.lastTs
+    } catch {
+      // corrupt snapshot: fall back to a fresh pull
+    }
   }
 
   private stamp(event: EventInput): AppEvent {
@@ -96,6 +168,7 @@ class ApiClient {
     this.outbox.push(stamped)
     for (const listener of this.listeners) listener(stamped)
     this.scheduleSync()
+    this.persist()
   }
 
   private scheduleSync() {
@@ -358,20 +431,37 @@ class ApiClient {
   }
 
   async loadData(): Promise<void> {
-    const { events, lastSeq } = await fetchRemoteEvents(this.lastSeq)
-    for (const e of events) this.applyRemoteEvent(e)
-    this.lastSeq = Math.max(this.lastSeq, lastSeq)
-    await this.sync()
+    this.restore()
+    try {
+      const { events, lastSeq } = await fetchRemoteEvents(this.lastSeq)
+      for (const e of events) this.applyRemoteEvent(e)
+      this.lastSeq = Math.max(this.lastSeq, lastSeq)
+    } catch {
+      // offline: keep restored state; the outbox is retried by the next sync
+    }
+    try {
+      await this.sync()
+    } catch {
+      // offline: keep the outbox for a later retry
+    }
+    this.persist()
   }
 
   async sync(): Promise<void> {
     const resp = await publishPendingEvents(this.outbox)
     this.outbox = []
     this.lastSeq = Math.max(this.lastSeq, resp.lastSeq)
+    this.persist()
   }
 
   connectStream(): () => void {
-    return subscribeEventStream(this.lastSeq, e => this.applyRemoteEvent(e))
+    if (this.streamUnsub) this.streamUnsub()
+    const unsub = subscribeEventStream(this.lastSeq, e => this.applyRemoteEvent(e))
+    this.streamUnsub = unsub
+    return () => {
+      unsub()
+      if (this.streamUnsub === unsub) this.streamUnsub = null
+    }
   }
 
   private applyRemoteEvent(e: ServerEvent) {

@@ -15,12 +15,24 @@ function App() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
     void useStore.getState().loadData().then(
-      () => setReady(true),
-      () => setReady(true),
+      () => {
+        if (disposed) return
+        unsubscribe = apiClient.connectStream()
+        setReady(true)
+      },
+      () => {
+        if (disposed) return
+        unsubscribe = apiClient.connectStream()
+        setReady(true)
+      },
     )
-    const unsubscribe = apiClient.connectStream()
-    return unsubscribe
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
   }, [])
 
   if (!ready) return null
