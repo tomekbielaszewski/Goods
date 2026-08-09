@@ -47,22 +47,18 @@ const ListScreen: FC = () => {
 
   const saveRename = async () => {
     if (!list || !renameName.trim()) return
-    const now = new Date().toISOString()
-    const updated = { ...list, name: renameName.trim(), updatedAt: now, version: list.version + 1 }
-    await apiClient.upsertList(updated)
+    const updated = await apiClient.renameList(list.id, renameName.trim())
     setList(updated)
     setRenameOpen(false)
   }
 
   const toggleArchive = async () => {
     if (!list) return
-    const now = new Date().toISOString()
-    await apiClient.upsertList({
-      ...list,
-      archivedAt: list.archivedAt ? undefined : now,
-      updatedAt: now,
-      version: list.version + 1,
-    })
+    if (list.archivedAt) {
+      await apiClient.unarchiveList(list.id)
+    } else {
+      await apiClient.archiveList(list.id)
+    }
     setMenuOpen(false)
     exitShoppingMode()
     navigate('/')
@@ -91,30 +87,25 @@ const ListScreen: FC = () => {
     const existing = listItems.find(li => li.itemId === item.id)
     if (existing) {
       if (existing.state !== 'active') {
-        await apiClient.upsertListItem({ ...existing, state: 'active', updatedAt: new Date().toISOString(), version: existing.version + 1 })
+        await apiClient.setListItemState(existing.id, 'active')
         reload()
       }
       return
     }
-    const now = new Date().toISOString()
     const defaultQty = item.defaultQuantity ?? (item.unit === 'g' || item.unit === 'ml' ? 100 : 1)
-    await apiClient.upsertListItem({
-      id: crypto.randomUUID(),
+    await apiClient.addListItem({
       listId: id,
       itemId: item.id,
       state: 'active',
       quantity: defaultQty,
       unit: item.unit,
-      version: 1,
-      addedAt: now,
-      updatedAt: now,
     })
     reload()
   }
 
   const toggleItem = async (li: ListItemWithItem) => {
     const newState = li.state === 'active' ? 'bought' : 'active'
-    await apiClient.upsertListItem({ ...li, state: newState, updatedAt: new Date().toISOString(), version: li.version + 1 })
+    await apiClient.setListItemState(li.id, newState)
 
     if (newState === 'bought' && shoppingModeShopId && id) {
       const sessionId = await getOrCreateSession(id, shoppingModeShopId)
@@ -130,12 +121,12 @@ const ListScreen: FC = () => {
   }
 
   const removeItem = async (li: ListItemWithItem) => {
-    await apiClient.deleteListItem(li.id)
+    await apiClient.removeListItem(li.id)
     reload()
   }
 
   const updateQuantity = async (li: ListItemWithItem, qty: number | undefined, unit: string | undefined) => {
-    await apiClient.upsertListItem({ ...li, quantity: qty, unit, updatedAt: new Date().toISOString(), version: li.version + 1 })
+    await apiClient.changeListItemQuantity(li.id, qty, unit)
     reload()
   }
 
@@ -378,7 +369,7 @@ const ListScreen: FC = () => {
 async function getOrCreateSession(listId: string, shopId: string): Promise<string> {
   const existing = await apiClient.findOpenSession(listId, shopId)
   if (existing) return existing.id
-  const session = await apiClient.createShoppingSession(listId, shopId)
+  const session = await apiClient.startShoppingSession(listId, shopId)
   return session.id
 }
 

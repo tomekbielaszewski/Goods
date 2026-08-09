@@ -46,7 +46,8 @@ const SettingsScreen: FC = () => {
     if (editId) {
       const existing = shops.find(s => s.id === editId)
       if (!existing) return
-      await apiClient.updateShop(editId, { name: name.trim(), color })
+      await apiClient.renameShop(editId, name.trim())
+      await apiClient.changeShopColor(editId, color)
     } else {
       await apiClient.createShop({ name: name.trim(), color })
     }

@@ -21,31 +21,19 @@ const ListsScreen: FC = () => {
 
   const createList = async () => {
     if (!newName.trim()) return
-    const now = new Date().toISOString()
-    const list: List = {
-      id: crypto.randomUUID(),
-      name: newName.trim(),
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    }
-    await apiClient.upsertList(list)
+    await apiClient.createList(newName.trim())
     setNewName('')
     setCreating(false)
     void load()
   }
 
   const deleteList = async (id: string) => {
-    const list = await apiClient.getList(id)
-    if (!list) return
-    await apiClient.upsertList({ ...list, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), version: list.version + 1 })
+    await apiClient.deleteList(id)
     void load()
   }
 
   const archiveList = async (id: string) => {
-    const list = await apiClient.getList(id)
-    if (!list) return
-    await apiClient.upsertList({ ...list, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), version: list.version + 1 })
+    await apiClient.archiveList(id)
     void load()
   }
 
