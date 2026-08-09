@@ -33,3 +33,10 @@ Agent(subagent_type="implementer", prompt="Make the failing tests pass")
 - The implementer must not modify any test files
 - Both agents must run the full test suite and report counts before declaring success
 - A feature is complete only when all frontend + backend tests pass with no typecheck errors
+
+## User Notifications (ntfy)
+- Whenever input or a decision from the user is needed during a session, notify them via ntfy before waiting or proceeding:
+  ```
+  curl -H "Title: OpenCode Alert" -H "Tags: laptop,gear" -d "<short message describing the question/decision>" ntfy.sh/tbw-opencode
+  ```
+- The user checks these notifications; a session may continue waiting for a reply.
