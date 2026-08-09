@@ -38,7 +38,8 @@ const (
 )
 
 // Event is the wire format of an append-only domain event, mirroring the
-// AppEvent shape the frontend emits.
+// AppEvent shape the frontend emits. Seq is assigned by the server on insert
+// and is only present in server responses.
 type Event struct {
 	ID        string          `json:"id"`
 	ClientID  string          `json:"clientId"`
@@ -47,6 +48,7 @@ type Event struct {
 	EntityID  string          `json:"entityId"`
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload"`
+	Seq       int64           `json:"seq,omitempty"`
 }
 
 func IsValidEventType(t string) bool {

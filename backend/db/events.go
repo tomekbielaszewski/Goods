@@ -48,7 +48,7 @@ func InsertEvents(db *sql.DB, events ...models.Event) (int, error) {
 // GetEventsSince returns events with seq greater than the given cursor,
 // ordered by seq ascending. limit <= 0 means no limit.
 func GetEventsSince(db *sql.DB, seq int64, limit int) ([]models.Event, error) {
-	q := `SELECT id, client_id, type, entity_id, payload, timestamp, lamport FROM events WHERE seq > ? ORDER BY seq ASC`
+	q := `SELECT id, seq, client_id, type, entity_id, payload, timestamp, lamport FROM events WHERE seq > ? ORDER BY seq ASC`
 	args := []any{seq}
 	if limit > 0 {
 		q += ` LIMIT ?`
@@ -65,7 +65,7 @@ func GetEventsSince(db *sql.DB, seq int64, limit int) ([]models.Event, error) {
 		var e models.Event
 		var clientID, entityID, typeStr string
 		var payload []byte
-		if err := rows.Scan(&e.ID, &clientID, &typeStr, &entityID, &payload, &e.Timestamp, &e.Lamport); err != nil {
+		if err := rows.Scan(&e.ID, &e.Seq, &clientID, &typeStr, &entityID, &payload, &e.Timestamp, &e.Lamport); err != nil {
 			return nil, err
 		}
 		e.ClientID = clientID
