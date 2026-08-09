@@ -71,6 +71,7 @@ export const useStore = create<AppStore>((set) => ({
     }),
 
   loadData: async () => {
+    await apiClient.loadData()
     const [shops, tags, items, lists] = await Promise.all([
       apiClient.getShops(),
       apiClient.getTags(),
