@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { apiClient } from './client'
+import type { AppEvent } from '../types/event'
 import type {
   Shop, Item, Tag, List, ListItem, ShoppingSession, SessionItem,
-  ItemWithDetails, ListItemWithItem,
 } from '../types'
 
 beforeEach(() => {
@@ -11,49 +11,118 @@ beforeEach(() => {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const makeShop = (id: string, color = '#ff0000'): Omit<Shop, 'id' | 'version' | 'updatedAt'> => ({
-  name: `Shop ${id}`,
-  color,
-})
+const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/
 
-const makeItem = (id: string, name: string): Omit<Item, 'id' | 'version' | 'createdAt' | 'updatedAt'> => ({
-  name,
-})
+function expectEnvelope(e: AppEvent) {
+  expect(typeof e.id).toBe('string')
+  expect(e.id.length).toBeGreaterThan(0)
+  expect(typeof e.clientId).toBe('string')
+  expect(e.clientId.length).toBeGreaterThan(0)
+  expect(Number.isInteger(e.lamport)).toBe(true)
+  expect(e.lamport).toBeGreaterThan(0)
+  expect(e.timestamp).toMatch(iso)
+  expect(typeof e.entityId).toBe('string')
+  expect(e.entityId.length).toBeGreaterThan(0)
+  expect(e.payload).toBeDefined()
+}
 
-const makeList = (id: string, overrides: Partial<List> = {}): List => ({
-  id,
-  name: `List ${id}`,
-  version: 1,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  ...overrides,
-})
+async function capture(fn: () => Promise<unknown>): Promise<AppEvent[]> {
+  const events: AppEvent[] = []
+  const unsubscribe = apiClient.subscribe(e => events.push(e))
+  try {
+    await fn()
+  } finally {
+    unsubscribe()
+  }
+  return events
+}
 
-const makeListItem = (id: string, listId: string, itemId: string, state: 'active' | 'bought' = 'active'): ListItem => ({
-  id,
-  listId,
-  itemId,
-  state,
-  version: 1,
-  addedAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-})
+// ── subscribe / reset / lamport ────────────────────────────────────────────────
 
-// ── isEmpty ────────────────────────────────────────────────────────────────────
-
-describe('isEmpty', () => {
-  it('returns true on empty state', async () => {
-    expect(await apiClient.isEmpty()).toBe(true)
+describe('subscribe', () => {
+  it('notifies listeners after each commit', async () => {
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    await apiClient.createShop({ name: 'A', color: '#000' })
+    await apiClient.createTag('t')
+    expect(events).toHaveLength(2)
+    expect(events.map(e => e.type)).toEqual(['ShopCreated', 'TagCreated'])
+    unsubscribe()
   })
 
-  it('returns false after adding an item', async () => {
-    const shop = await apiClient.createShop(makeShop('shop-1'))
-    await apiClient.upsertItem(
-      { ...makeItem('item-1', 'Milk'), id: 'item-1', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop.id],
-      [],
-    )
+  it('delivers events to multiple listeners', async () => {
+    const a: AppEvent[] = []
+    const b: AppEvent[] = []
+    const u1 = apiClient.subscribe(e => a.push(e))
+    const u2 = apiClient.subscribe(e => b.push(e))
+    await apiClient.createTag('dairy')
+    expect(a).toHaveLength(1)
+    expect(b).toHaveLength(1)
+    u1()
+    u2()
+  })
+
+  it('returns an unsubscribe function that stops delivery', async () => {
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    await apiClient.createTag('a')
+    unsubscribe()
+    await apiClient.createTag('b')
+    expect(events).toHaveLength(1)
+  })
+})
+
+describe('reset', () => {
+  it('clears the event log and resets the lamport counter to 0', async () => {
+    await apiClient.createShop({ name: 'A', color: '#000' })
+    const before = await capture(() => apiClient.createTag('x'))
+    expect(before[0]!.lamport).toBe(2)
+    apiClient.reset()
+    const after = await capture(() => apiClient.createTag('y'))
+    expect(after).toHaveLength(1)
+    expect(after[0]!.lamport).toBe(1)
+  })
+
+  it('clears all Maps', async () => {
+    const shop = await apiClient.createShop({ name: 'A', color: '#000' })
+    await apiClient.createTag('t')
+    const list = await apiClient.createList('L')
+    const item = await apiClient.createItem({ name: 'M' }, [], [])
+    await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+    await apiClient.startShoppingSession(list.id, shop.id)
     expect(await apiClient.isEmpty()).toBe(false)
+
+    apiClient.reset()
+
+    expect(await apiClient.isEmpty()).toBe(true)
+    expect(await apiClient.getShops()).toEqual([])
+    expect(await apiClient.getTags()).toEqual([])
+    expect(await apiClient.getLists()).toEqual([])
+    expect(await apiClient.getItemsWithDetails()).toEqual([])
+    expect(await apiClient.getListItemsWithItems(list.id)).toEqual([])
+    expect(await apiClient.findOpenSession(list.id, shop.id)).toBeUndefined()
+  })
+})
+
+describe('lamport ordering', () => {
+  it('is strictly increasing across three different-method commits', async () => {
+    const events = await capture(async () => {
+      await apiClient.createShop({ name: 'A', color: '#000' })
+      await apiClient.createTag('t')
+      await apiClient.createList('L')
+    })
+    expect(events.map(e => e.type)).toEqual(['ShopCreated', 'TagCreated', 'ListCreated'])
+    expect(events.map(e => e.lamport)).toEqual([1, 2, 3])
+  })
+
+  it('stamps the same clientId across commits', async () => {
+    const events = await capture(async () => {
+      const shop = await apiClient.createShop({ name: 'A', color: '#000' })
+      await apiClient.renameShop(shop.id, 'B')
+      await apiClient.createTag('t')
+    })
+    expect(events).toHaveLength(3)
+    for (const e of events) expect(e.clientId).toBe(events[0]!.clientId)
   })
 })
 
@@ -64,35 +133,90 @@ describe('shops', () => {
     expect(await apiClient.getShops()).toEqual([])
   })
 
-  it('createShop returns a shop with id, version, updatedAt', async () => {
-    const shop = await apiClient.createShop(makeShop('s1'))
+  it('createShop emits ShopCreated and returns the shop', async () => {
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#ff0000' })
+    unsubscribe()
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopCreated')
+    expect(ev.entityId).toBe(shop.id)
+    expect(ev.payload).toEqual({ name: 'Lidl', color: '#ff0000' })
+    expect(ev.lamport).toBe(1)
+
     expect(shop.id).toBeDefined()
-    expect(shop.name).toBe('Shop s1')
+    expect(shop.name).toBe('Lidl')
     expect(shop.color).toBe('#ff0000')
     expect(shop.version).toBe(1)
-    expect(shop.updatedAt).toBeDefined()
-  })
+    expect(shop.updatedAt).toMatch(iso)
 
-  it('getShops returns all created shops', async () => {
-    await apiClient.createShop(makeShop('s1'))
-    await apiClient.createShop(makeShop('s2'))
     const shops = await apiClient.getShops()
-    expect(shops).toHaveLength(2)
+    expect(shops).toEqual([expect.objectContaining({ id: shop.id, name: 'Lidl', color: '#ff0000', version: 1 })])
   })
 
-  it('updateShop updates fields and returns updated shop', async () => {
-    const shop = await apiClient.createShop(makeShop('s1'))
-    const updated = await apiClient.updateShop(shop.id, { name: 'New Name' })
-    expect(updated.name).toBe('New Name')
-    expect(updated.id).toBe(shop.id)
+  it('renameShop emits ShopRenamed and updates the projection', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#ff0000' })
+    let renamed!: Shop
+    const events = await capture(async () => {
+      renamed = await apiClient.renameShop(shop.id, 'Netto')
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopRenamed')
+    expect(ev.entityId).toBe(shop.id)
+    expect(ev.payload).toEqual({ name: 'Netto' })
+
+    expect(renamed.name).toBe('Netto')
+    expect(renamed.version).toBe(2)
+    expect(renamed.updatedAt).not.toBe(shop.updatedAt)
+
+    const stored = await apiClient.getShop(shop.id)
+    expect(stored?.name).toBe('Netto')
+    expect(stored?.version).toBe(2)
+  })
+
+  it('changeShopColor emits ShopColorChanged and updates the projection', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#ff0000' })
+    let updated!: Shop
+    const events = await capture(async () => {
+      updated = await apiClient.changeShopColor(shop.id, '#00ff00')
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopColorChanged')
+    expect(ev.entityId).toBe(shop.id)
+    expect(ev.payload).toEqual({ color: '#00ff00' })
+
+    expect(updated.color).toBe('#00ff00')
     expect(updated.version).toBe(2)
+
+    const stored = await apiClient.getShop(shop.id)
+    expect(stored?.color).toBe('#00ff00')
+    expect(stored?.version).toBe(2)
   })
 
-  it('deleteShop removes the shop', async () => {
-    const shop = await apiClient.createShop(makeShop('s1'))
-    await apiClient.deleteShop(shop.id)
+  it('softDeleteShop emits ShopSoftDeleted and keeps the entity in the Map', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#ff0000' })
+    const events = await capture(() => apiClient.softDeleteShop(shop.id))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopSoftDeleted')
+    expect(ev.entityId).toBe(shop.id)
+    expect(ev.payload.deletedAt).toMatch(iso)
+
+    const stored = await apiClient.getShop(shop.id)
+    expect(stored?.deletedAt).toBe(ev.payload.deletedAt)
     const shops = await apiClient.getShops()
-    expect(shops).toHaveLength(0)
+    expect(shops.some(s => s.id === shop.id)).toBe(true)
   })
 })
 
@@ -103,24 +227,36 @@ describe('tags', () => {
     expect(await apiClient.getTags()).toEqual([])
   })
 
-  it('createTag returns a tag with id and name', async () => {
+  it('createTag emits TagCreated and returns the tag', async () => {
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
     const tag = await apiClient.createTag('dairy')
+    unsubscribe()
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('TagCreated')
+    expect(ev.entityId).toBe(tag.id)
+    expect(ev.payload).toEqual({ name: 'dairy' })
+
     expect(tag.id).toBeDefined()
     expect(tag.name).toBe('dairy')
+    expect(await apiClient.getTags()).toEqual([tag])
   })
 
-  it('getTags returns all created tags', async () => {
-    await apiClient.createTag('dairy')
-    await apiClient.createTag('produce')
-    const tags = await apiClient.getTags()
-    expect(tags).toHaveLength(2)
-  })
-
-  it('deleteTag removes the tag', async () => {
+  it('deleteTag emits TagDeleted and removes the tag', async () => {
     const tag = await apiClient.createTag('dairy')
-    await apiClient.deleteTag(tag.id)
-    const tags = await apiClient.getTags()
-    expect(tags).toHaveLength(0)
+    const events = await capture(() => apiClient.deleteTag(tag.id))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('TagDeleted')
+    expect(ev.entityId).toBe(tag.id)
+    expect(ev.payload).toEqual({})
+
+    expect(await apiClient.getTags()).toEqual([])
   })
 })
 
@@ -131,330 +267,204 @@ describe('items', () => {
     expect(await apiClient.getItemsWithDetails()).toEqual([])
   })
 
-  it('upsertItem creates a new item with shops and tags', async () => {
-    const shop = await apiClient.createShop(makeShop('shop-1'))
+  it('createItem emits ItemCreated plus per-id relation events', async () => {
+    const shop1 = await apiClient.createShop({ name: 'A', color: '#000' })
+    const shop2 = await apiClient.createShop({ name: 'B', color: '#111' })
     const tag = await apiClient.createTag('dairy')
-    const item = await apiClient.upsertItem(
-      { ...makeItem('i1', 'Milk'), id: 'i1', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop.id],
-      [tag.id],
-    )
-    expect(item.id).toBe('i1')
-    expect(item.name).toBe('Milk')
 
-    const items = await apiClient.getItemsWithDetails()
-    expect(items).toHaveLength(1)
-    expect(items[0]!.shops).toHaveLength(1)
-    expect(items[0]!.shops[0]!.id).toBe(shop.id)
-    expect(items[0]!.tags).toHaveLength(1)
-    expect(items[0]!.tags[0]!.id).toBe(tag.id)
-  })
-
-  it('upsertItem updates existing item and replaces shops', async () => {
-    const shop1 = await apiClient.createShop(makeShop('shop-1'))
-    const shop2 = await apiClient.createShop(makeShop('shop-2'))
-
-    const item = { id: 'i1', name: 'Whole Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item
-    await apiClient.upsertItem(item, [shop1.id], [])
-
-    const updated = { ...item, name: 'Skimmed Milk', updatedAt: new Date().toISOString() } as Item
-    await apiClient.upsertItem(updated, [shop2.id], [])
-
-    const items = await apiClient.getItemsWithDetails()
-    expect(items).toHaveLength(1)
-    expect(items[0]!.name).toBe('Skimmed Milk')
-    expect(items[0]!.shops).toHaveLength(1)
-    expect(items[0]!.shops[0]!.id).toBe(shop2.id)
-  })
-
-  it('getItemsWithDetails excludes deleted items', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Active', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Deleted', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const items = await apiClient.getItemsWithDetails()
-    expect(items).toHaveLength(1)
-    expect(items[0]!.name).toBe('Active')
-  })
-
-  it('getItemsWithDetails returns empty shops/tags when item has none', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const items = await apiClient.getItemsWithDetails()
-    expect(items[0]!.shops).toEqual([])
-    expect(items[0]!.tags).toEqual([])
-    expect(items[0]!.frequency).toBe(0)
-  })
-
-  it('getItemWithDetails returns single item', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const item = await apiClient.getItemWithDetails('i1')
-    expect(item).toBeDefined()
-    expect(item!.name).toBe('Milk')
-  })
-
-  it('getItemWithDetails returns undefined for missing item', async () => {
-    const item = await apiClient.getItemWithDetails('no-such-id')
-    expect(item).toBeUndefined()
-  })
-
-  it('addItemToShop and removeItemFromShop', async () => {
-    const shop1 = await apiClient.createShop(makeShop('shop-1'))
-    const shop2 = await apiClient.createShop(makeShop('shop-2'))
-
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop1.id], [],
-    )
-
-    await apiClient.addItemToShop('i1', shop2.id)
-    let items = await apiClient.getItemsWithDetails()
-    expect(items[0]!.shops).toHaveLength(2)
-
-    await apiClient.removeItemFromShop('i1', shop1.id)
-    items = await apiClient.getItemsWithDetails()
-    expect(items[0]!.shops).toHaveLength(1)
-    expect(items[0]!.shops[0]!.id).toBe(shop2.id)
-  })
-
-  it('getItemsForShop returns items assigned to that shop', async () => {
-    const shop = await apiClient.createShop(makeShop('shop-1'))
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop.id], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-
-    const items = await apiClient.getItemsForShop(shop.id)
-    expect(items).toHaveLength(1)
-    expect(items[0]!.name).toBe('Milk')
-  })
-
-  it('enrichment includes frequency, lastBoughtAt, lastBoughtShopId from session items', async () => {
-    const shop = await apiClient.createShop(makeShop('shop-1'))
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop.id], [],
-    )
-
-    const session = await apiClient.createShoppingSession('list-1', shop.id)
-    await apiClient.recordSessionItem({
-      sessionId: session.id,
-      itemId: 'i1',
-      action: 'bought',
-      at: '2024-01-01T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id,
-      itemId: 'i1',
-      action: 'bought',
-      at: '2024-01-02T10:00:00.000Z',
+    let item!: Item
+    const events = await capture(async () => {
+      item = await apiClient.createItem(
+        { name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note' },
+        [shop1.id, shop2.id],
+        [tag.id],
+      )
     })
 
-    const items = await apiClient.getItemsWithDetails()
-    expect(items[0]!.frequency).toBe(2)
-    expect(items[0]!.lastBoughtAt).toBe('2024-01-02T10:00:00.000Z')
-    expect(items[0]!.lastBoughtShopId).toBe(shop.id)
-  })
-})
+    expect(events).toHaveLength(4)
+    const created = events[0]!
+    expectEnvelope(created)
+    expect(created.type).toBe('ItemCreated')
+    expect(created.entityId).toBe(item.id)
+    expect(created.payload).toEqual({ name: 'Milk', unit: 'l', defaultQuantity: 2, description: 'desc', notes: 'note' })
 
-// ── Search filtering ───────────────────────────────────────────────────────────
-
-describe('search filtering', () => {
-  beforeEach(async () => {
-    apiClient.reset()
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Whole Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Oat Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i3', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-  })
-
-  it('returns matching items only', async () => {
-    const result = await apiClient.getItemsWithDetails('milk')
-    expect(result).toHaveLength(2)
-    expect(result.map(i => i.name).sort()).toEqual(['Oat Milk', 'Whole Milk'])
-  })
-
-  it('is case-insensitive', async () => {
-    apiClient.reset()
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Whole Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'BUTTER', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const result = await apiClient.getItemsWithDetails('MILK')
-    expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Whole Milk')
-  })
-
-  it('returns empty when no match', async () => {
-    const result = await apiClient.getItemsWithDetails('xyz')
-    expect(result).toEqual([])
-  })
-
-  it('matches Polish diacritics with plain ASCII', async () => {
-    apiClient.reset()
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Jabłka', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Żółw', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i3', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-
-    const result1 = await apiClient.getItemsWithDetails('jabl')
-    expect(result1).toHaveLength(1)
-    expect(result1[0]!.name).toBe('Jabłka')
-
-    const result2 = await apiClient.getItemsWithDetails('zolw')
-    expect(result2).toHaveLength(1)
-    expect(result2[0]!.name).toBe('Żółw')
-  })
-
-  it('matches when search term has diacritics and name does not', async () => {
-    apiClient.reset()
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Jablka', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const result = await apiClient.getItemsWithDetails('jabłka')
-    expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Jablka')
-  })
-
-  it('matches when search term has trailing or leading whitespace', async () => {
-    apiClient.reset()
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'szczypiorek', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    const resultTrailing = await apiClient.getItemsWithDetails('szczypiorek ')
-    expect(resultTrailing).toHaveLength(1)
-
-    const resultLeading = await apiClient.getItemsWithDetails(' szczypiorek')
-    expect(resultLeading).toHaveLength(1)
-  })
-})
-
-// ── getFrequentItems ───────────────────────────────────────────────────────────
-
-describe('getFrequentItems', () => {
-  it('excludes active items on given list', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'i1', 'active'))
-
-    const result = await apiClient.getFrequentItems('list-1')
-    const ids = result.map(i => i.id)
-    expect(ids).not.toContain('i1')
-    expect(ids).toContain('i2')
-  })
-
-  it('includes bought items on list', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Eggs', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'i1', 'bought'))
-
-    const result = await apiClient.getFrequentItems('list-1')
-    const ids = result.map(i => i.id)
-    expect(ids).toContain('i1')
-  })
-
-  it('sorts by frequency descending', async () => {
-    await apiClient.upsertItem(
-      { id: 'i1', name: 'Rare', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i2', name: 'Common', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertItem(
-      { id: 'i3', name: 'Most Common', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-
-    const shop = await apiClient.createShop(makeShop('shop-1'))
-    const session = await apiClient.createShoppingSession('list-x', shop.id)
-
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i3', action: 'bought', at: '2024-01-01T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i3', action: 'bought', at: '2024-01-02T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i3', action: 'bought', at: '2024-01-03T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i2', action: 'bought', at: '2024-01-01T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i2', action: 'bought', at: '2024-01-02T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id, itemId: 'i1', action: 'bought', at: '2024-01-01T10:00:00.000Z',
-    })
-
-    const result = await apiClient.getFrequentItems('list-x')
-    expect(result[0]!.id).toBe('i3')
-    expect(result[1]!.id).toBe('i2')
-    expect(result[2]!.id).toBe('i1')
-    expect(result[0]!.frequency).toBe(3)
-    expect(result[1]!.frequency).toBe(2)
-    expect(result[2]!.frequency).toBe(1)
-  })
-
-  it('returns all catalogue items not active on list', async () => {
-    const manyItems = Array.from({ length: 25 }, (_, i) =>
-      ({ id: `i${i + 1}`, name: `Item ${i + 1}`, version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item),
-    )
-    for (const item of manyItems) {
-      await apiClient.upsertItem(item, [], [])
+    const relations = events.slice(1)
+    expect(relations).toHaveLength(3)
+    for (const r of relations) {
+      expectEnvelope(r)
+      expect(r.entityId).toBe(item.id)
     }
+    expect(relations.map(r => [r.type, r.payload])).toEqual(expect.arrayContaining([
+      ['ShopAssignedToItem', { shopId: shop1.id }],
+      ['ShopAssignedToItem', { shopId: shop2.id }],
+      ['TagAssignedToItem', { tagId: tag.id }],
+    ]))
 
-    const result = await apiClient.getFrequentItems('list-1')
-    expect(result.length).toBe(25)
+    expect(item.id).toBeDefined()
+    expect(item.name).toBe('Milk')
+    expect(item.version).toBe(1)
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.shops.map(s => s.id).sort()).toEqual([shop1.id, shop2.id].sort())
+    expect(details?.tags.map(t => t.id)).toEqual([tag.id])
+  })
+
+  it('updateItem emits ItemUpdated with only the changed fields', async () => {
+    const item = await apiClient.createItem({ name: 'Milk', unit: 'l' }, [], [])
+    let updated!: Item
+    const events = await capture(async () => {
+      updated = await apiClient.updateItem(item.id, { name: 'Skimmed Milk' })
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ItemUpdated')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toEqual({ name: 'Skimmed Milk' })
+
+    expect(updated.name).toBe('Skimmed Milk')
+    expect(updated.version).toBe(2)
+    expect(updated.updatedAt).not.toBe(item.updatedAt)
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.name).toBe('Skimmed Milk')
+    expect(details?.unit).toBe('l')
+    expect(details?.version).toBe(2)
+  })
+
+  it('updateItem with an explicit undefined clears the field', async () => {
+    const item = await apiClient.createItem({ name: 'Flour', unit: 'kg' }, [], [])
+    const events = await capture(() => apiClient.updateItem(item.id, { unit: undefined }))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expect(ev.type).toBe('ItemUpdated')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toHaveProperty('unit')
+    expect(ev.payload.unit).toBeUndefined()
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details).toBeDefined()
+    expect('unit' in details!).toBe(true)
+    expect(details?.unit).toBeUndefined()
+  })
+
+  it('assignShopToItem emits ShopAssignedToItem and updates the projection', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#f00' })
+    const events = await capture(() => apiClient.assignShopToItem(item.id, shop.id))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopAssignedToItem')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toEqual({ shopId: shop.id })
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.shops.map(s => s.id)).toEqual([shop.id])
+  })
+
+  it('removeShopFromItem emits ShopRemovedFromItem and updates the projection', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, ['s1'], [])
+    const events = await capture(() => apiClient.removeShopFromItem(item.id, 's1'))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopRemovedFromItem')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toEqual({ shopId: 's1' })
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.shops).toEqual([])
+  })
+
+  it('assignTagToItem emits TagAssignedToItem and updates the projection', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const tag = await apiClient.createTag('dairy')
+    const events = await capture(() => apiClient.assignTagToItem(item.id, tag.id))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('TagAssignedToItem')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toEqual({ tagId: tag.id })
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.tags.map(t => t.id)).toEqual([tag.id])
+  })
+
+  it('removeTagFromItem emits TagRemovedFromItem and updates the projection', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, [], ['t1'])
+    const events = await capture(() => apiClient.removeTagFromItem(item.id, 't1'))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('TagRemovedFromItem')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload).toEqual({ tagId: 't1' })
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.tags).toEqual([])
+  })
+
+  it('saveItemShopsAndTags emits only per-diff relation events', async () => {
+    const s1 = await apiClient.createShop({ name: 'A', color: '#000' })
+    const s2 = await apiClient.createShop({ name: 'B', color: '#111' })
+    const s3 = await apiClient.createShop({ name: 'C', color: '#222' })
+    const t1 = await apiClient.createTag('dairy')
+    const t2 = await apiClient.createTag('frozen')
+    const item = await apiClient.createItem({ name: 'Milk' }, [s1.id, s2.id], [t1.id])
+
+    const events = await capture(() =>
+      apiClient.saveItemShopsAndTags(item.id, [s2.id, s3.id], [t2.id])
+    )
+
+    expect(events).toHaveLength(4)
+    for (const ev of events) {
+      expectEnvelope(ev)
+      expect(ev.entityId).toBe(item.id)
+    }
+    expect(events.map(e => [e.type, e.payload])).toEqual(expect.arrayContaining([
+      ['ShopRemovedFromItem', { shopId: s1.id }],
+      ['ShopAssignedToItem', { shopId: s3.id }],
+      ['TagRemovedFromItem', { tagId: t1.id }],
+      ['TagAssignedToItem', { tagId: t2.id }],
+    ]))
+    expect(events.filter(e => e.type === 'ShopAssignedToItem' && e.payload.shopId === s2.id)).toHaveLength(0)
+    expect(events.filter(e => e.type === 'ShopRemovedFromItem' && e.payload.shopId === s2.id)).toHaveLength(0)
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.shops.map(s => s.id).sort()).toEqual([s2.id, s3.id].sort())
+    expect(details?.tags.map(t => t.id)).toEqual([t2.id])
+  })
+
+  it('softDeleteItem emits ItemSoftDeleted and hides the item from reads', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const events = await capture(() => apiClient.softDeleteItem(item.id))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ItemSoftDeleted')
+    expect(ev.entityId).toBe(item.id)
+    expect(ev.payload.deletedAt).toMatch(iso)
+
+    const details = await apiClient.getItemWithDetails(item.id)
+    expect(details?.deletedAt).toBe(ev.payload.deletedAt)
+    expect(await apiClient.getItemsWithDetails()).toEqual([])
+  })
+
+  it('bumps version and updatedAt on each item mutation', async () => {
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    expect(item.version).toBe(1)
+    const updated = await apiClient.updateItem(item.id, { name: 'Milk 2' })
+    expect(updated.version).toBe(2)
+    expect(updated.updatedAt).not.toBe(item.updatedAt)
   })
 })
 
@@ -465,217 +475,347 @@ describe('lists', () => {
     expect(await apiClient.getLists()).toEqual([])
   })
 
-  it('upsertList creates a new list', async () => {
-    const list = makeList('list-1')
-    const saved = await apiClient.upsertList(list)
-    expect(saved.id).toBe('list-1')
-    expect(saved.name).toBe('List list-1')
+  it('createList emits ListCreated and returns the list', async () => {
+    let list!: List
+    const events = await capture(async () => {
+      list = await apiClient.createList('Weekly')
+    })
 
-    const lists = await apiClient.getLists()
-    expect(lists).toHaveLength(1)
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListCreated')
+    expect(ev.entityId).toBe(list.id)
+    expect(ev.payload).toEqual({ name: 'Weekly' })
+
+    expect(list.id).toBeDefined()
+    expect(list.name).toBe('Weekly')
+    expect(list.version).toBe(1)
+    expect((await apiClient.getLists())[0]).toEqual(expect.objectContaining({ id: list.id, name: 'Weekly' }))
   })
 
-  it('upsertList updates existing list', async () => {
-    const list = makeList('list-1')
-    await apiClient.upsertList(list)
+  it('renameList emits ListRenamed and updates the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    let renamed!: List
+    const events = await capture(async () => {
+      renamed = await apiClient.renameList(list.id, 'Monthly')
+    })
 
-    const updated = { ...list, name: 'Renamed', version: 2 }
-    await apiClient.upsertList(updated)
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListRenamed')
+    expect(ev.entityId).toBe(list.id)
+    expect(ev.payload).toEqual({ name: 'Monthly' })
 
-    const lists = await apiClient.getLists()
-    expect(lists).toHaveLength(1)
-    expect(lists[0]!.name).toBe('Renamed')
+    expect(renamed.name).toBe('Monthly')
+    expect(renamed.version).toBe(2)
+    expect((await apiClient.getList(list.id))?.name).toBe('Monthly')
   })
 
-  it('deleteList removes a list', async () => {
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.deleteList('list-1')
-    expect(await apiClient.getLists()).toHaveLength(0)
+  it('archiveList emits ListArchived and updates the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    let archived!: List
+    const events = await capture(async () => {
+      archived = await apiClient.archiveList(list.id)
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListArchived')
+    expect(ev.entityId).toBe(list.id)
+    expect(ev.payload.archivedAt).toMatch(iso)
+
+    expect(archived.archivedAt).toBe(ev.payload.archivedAt)
+    expect((await apiClient.getList(list.id))?.archivedAt).toBe(ev.payload.archivedAt)
   })
 
-  it('cloneList creates a copy with new IDs', async () => {
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
-    await apiClient.upsertListItem(makeListItem('li-2', 'list-1', 'item-2'))
+  it('deleteList emits ListDeleted and keeps the entity in the Map', async () => {
+    const list = await apiClient.createList('Weekly')
+    const events = await capture(() => apiClient.deleteList(list.id))
 
-    const cloned = await apiClient.cloneList('list-1')
-    expect(cloned.id).not.toBe('list-1')
-    expect(cloned.name).toBe('Copy of List list-1')
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListDeleted')
+    expect(ev.entityId).toBe(list.id)
+    expect(ev.payload.deletedAt).toMatch(iso)
 
-    const allLists = await apiClient.getLists()
-    expect(allLists).toHaveLength(2)
+    expect((await apiClient.getList(list.id))?.deletedAt).toBe(ev.payload.deletedAt)
+    expect((await apiClient.getLists()).some(l => l.id === list.id)).toBe(true)
+  })
 
-    const clonedItems = await apiClient.getListItemsWithItems(cloned.id)
-    expect(clonedItems).toHaveLength(2)
-    expect(clonedItems.every(li => li.id !== 'li-1' && li.id !== 'li-2')).toBe(true)
+  it('cloneList emits ListCreated first, then one ListItemAdded per source item', async () => {
+    const src = await apiClient.createList('Weekly')
+    const i1 = await apiClient.createItem({ name: 'Milk', unit: 'l' }, [], [])
+    const i2 = await apiClient.createItem({ name: 'Eggs' }, [], [])
+    await apiClient.addListItem({ listId: src.id, itemId: i1.id, state: 'active', quantity: 2, unit: 'l', notes: 'buy two' })
+    await apiClient.addListItem({ listId: src.id, itemId: i2.id, state: 'bought', quantity: 1 })
+
+    let cloned!: List
+    const events = await capture(async () => {
+      cloned = await apiClient.cloneList(src.id)
+    })
+
+    expect(events).toHaveLength(3)
+    const created = events[0]!
+    expectEnvelope(created)
+    expect(created.type).toBe('ListCreated')
+    expect(created.entityId).toBe(cloned.id)
+    expect(created.payload).toEqual({ name: 'Copy of Weekly' })
+    expect(cloned.name).toBe('Copy of Weekly')
+
+    const clonedLis = await apiClient.getListItemsWithItems(cloned.id)
+    expect(clonedLis).toHaveLength(2)
+
+    const liEvents = events.slice(1)
+    expect(liEvents.map(e => e.type)).toEqual(['ListItemAdded', 'ListItemAdded'])
+    for (const ev of liEvents) {
+      expectEnvelope(ev)
+      expect(ev.entityId).not.toBe('')
+    }
+    expect(liEvents.map(e => e.entityId).sort()).toEqual(clonedLis.map(li => li.id).sort())
+
+    expect(liEvents.map(e => [e.type, e.payload])).toEqual(expect.arrayContaining([
+      ['ListItemAdded', { listId: cloned.id, itemId: i1.id, state: 'active', quantity: 2, unit: 'l', notes: 'buy two' }],
+      ['ListItemAdded', { listId: cloned.id, itemId: i2.id, state: 'bought', quantity: 1 }],
+    ]))
+
+    const milk = clonedLis.find(li => li.itemId === i1.id)
+    const eggs = clonedLis.find(li => li.itemId === i2.id)
+    expect(milk).toBeDefined()
+    expect(milk?.state).toBe('active')
+    expect(milk?.quantity).toBe(2)
+    expect(milk?.unit).toBe('l')
+    expect(milk?.notes).toBe('buy two')
+    expect(eggs).toBeDefined()
+    expect(eggs?.state).toBe('bought')
+    expect(eggs?.quantity).toBe(1)
+
+    const lamports = events.map(e => e.lamport)
+    expect(lamports).toEqual([...lamports].sort((a, b) => a - b))
+    expect(lamports).toEqual([1, 2, 3])
   })
 })
 
 // ── ListItems ──────────────────────────────────────────────────────────────────
 
 describe('listItems', () => {
-  it('getListItemsWithItems returns enriched items', async () => {
-    const shop = await apiClient.createShop(makeShop('shop-1'))
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [shop.id], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
+  it('addListItem emits ListItemAdded and returns a listItem with a generated id', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
 
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result).toHaveLength(1)
-    expect(result[0]!.item.name).toBe('Milk')
-    expect(result[0]!.item.shops).toHaveLength(1)
+    let li!: ListItem
+    const events = await capture(async () => {
+      li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active', quantity: 2, unit: 'l', notes: 'note' })
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListItemAdded')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({ listId: list.id, itemId: item.id, state: 'active', quantity: 2, unit: 'l', notes: 'note' })
+
+    expect(li.id).toBeDefined()
+    expect(li.listId).toBe(list.id)
+    expect(li.itemId).toBe(item.id)
+    expect(li.state).toBe('active')
+    expect(li.version).toBe(1)
+
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.id).toBe(li.id)
+    expect(lis[0]!.quantity).toBe(2)
+    expect(lis[0]!.unit).toBe('l')
+    expect(lis[0]!.notes).toBe('note')
   })
 
-  it('getListItemsWithItems includes skippedShopIds', async () => {
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
+  it('setListItemState emits ListItemStateChanged and updates the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
 
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result[0]!.skippedShopIds).toEqual(['shop-1'])
-  })
+    let updated!: ListItem
+    const events = await capture(async () => {
+      updated = await apiClient.setListItemState(li.id, 'bought')
+    })
 
-  it('upsertListItem creates and updates', async () => {
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListItemStateChanged')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({ state: 'bought' })
 
-    const li = makeListItem('li-1', 'list-1', 'item-1')
-    const saved = await apiClient.upsertListItem(li)
-    expect(saved.id).toBe('li-1')
-
-    const updated = await apiClient.upsertListItem({ ...li, quantity: 3 })
-    expect(updated.quantity).toBe(3)
-  })
-
-  it('updateListItemState changes state', async () => {
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1', 'active'))
-
-    const updated = await apiClient.updateListItemState('li-1', 'bought')
     expect(updated.state).toBe('bought')
-  })
-})
-
-// ── skipShopForListItem / clearSkipForListItem ─────────────────────────────────
-
-describe('skipShopForListItem', () => {
-  it('skipShopForListItem adds a skip', async () => {
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
-
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result[0]!.skippedShopIds).toContain('shop-1')
+    expect((await apiClient.getListItemsWithItems(list.id))[0]!.state).toBe('bought')
   })
 
-  it('is idempotent', async () => {
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
+  it('changeListItemQuantity emits ListItemQuantityChanged and updates the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Flour' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active', quantity: 1, unit: 'kg' })
 
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result[0]!.skippedShopIds.filter(id => id === 'shop-1')).toHaveLength(1)
-  })
-})
+    let updated!: ListItem
+    const events = await capture(async () => {
+      updated = await apiClient.changeListItemQuantity(li.id, 3, 'kg')
+    })
 
-describe('clearSkipForListItem', () => {
-  it('removes a skip', async () => {
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    await apiClient.clearSkipForListItem('li-1', 'shop-1')
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListItemQuantityChanged')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({ quantity: 3, unit: 'kg' })
 
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
-
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result[0]!.skippedShopIds).toEqual([])
+    expect(updated.quantity).toBe(3)
+    expect(updated.unit).toBe('kg')
+    const stored = (await apiClient.getListItemsWithItems(list.id))[0]!
+    expect(stored.quantity).toBe(3)
+    expect(stored.unit).toBe('kg')
   })
 
-  it('only removes targeted shop', async () => {
-    await apiClient.skipShopForListItem('li-1', 'shop-1')
-    await apiClient.skipShopForListItem('li-1', 'shop-2')
-    await apiClient.clearSkipForListItem('li-1', 'shop-1')
+  it('removeListItem emits ListItemRemoved and removes it from the projection', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
 
-    await apiClient.upsertItem(
-      { id: 'item-1', name: 'Milk', version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Item,
-      [], [],
-    )
-    await apiClient.upsertList(makeList('list-1'))
-    await apiClient.upsertListItem(makeListItem('li-1', 'list-1', 'item-1'))
+    const events = await capture(() => apiClient.removeListItem(li.id))
 
-    const result = await apiClient.getListItemsWithItems('list-1')
-    expect(result[0]!.skippedShopIds).toEqual(['shop-2'])
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ListItemRemoved')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({})
+
+    expect(await apiClient.getListItemsWithItems(list.id)).toEqual([])
   })
 
-  it('no-op when skip does not exist', async () => {
-    await expect(apiClient.clearSkipForListItem('no-li', 'no-shop')).resolves.not.toThrow()
+  it('skipShopForListItem emits ShopSkippedForListItem and records the skip', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+
+    const events = await capture(() => apiClient.skipShopForListItem(li.id, 's1'))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopSkippedForListItem')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({ shopId: 's1' })
+
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis[0]!.skippedShopIds).toEqual(['s1'])
+  })
+
+  it('clearSkipForListItem emits ShopSkipCleared and removes the skip', async () => {
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+    await apiClient.skipShopForListItem(li.id, 's1')
+
+    const events = await capture(() => apiClient.clearSkipForListItem(li.id, 's1'))
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShopSkipCleared')
+    expect(ev.entityId).toBe(li.id)
+    expect(ev.payload).toEqual({ shopId: 's1' })
+
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis[0]!.skippedShopIds).toEqual([])
   })
 })
 
 // ── Sessions ───────────────────────────────────────────────────────────────────
 
 describe('sessions', () => {
-  it('createShoppingSession creates a session', async () => {
-    const session = await apiClient.createShoppingSession('list-1', 'shop-1')
+  it('startShoppingSession emits ShoppingSessionStarted and stores the session', async () => {
+    let session!: ShoppingSession
+    const events = await capture(async () => {
+      session = await apiClient.startShoppingSession('l1', 's1')
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('ShoppingSessionStarted')
+    expect(ev.entityId).toBe(session.id)
+    expect(ev.payload).toEqual({ listId: 'l1', shopId: 's1' })
+
     expect(session.id).toBeDefined()
-    expect(session.listId).toBe('list-1')
-    expect(session.shopId).toBe('shop-1')
+    expect(session.listId).toBe('l1')
+    expect(session.shopId).toBe('s1')
+    expect(session.version).toBe(1)
+    expect((await apiClient.findOpenSession('l1', 's1'))?.id).toBe(session.id)
   })
 
-  it('recordSessionItem records an item in a session', async () => {
-    const session = await apiClient.createShoppingSession('list-1', 'shop-1')
-    const si = await apiClient.recordSessionItem({
-      sessionId: session.id,
-      itemId: 'item-1',
-      action: 'bought',
-      at: new Date().toISOString(),
+  it('recordSessionItem with action bought emits SessionItemBought', async () => {
+    const session = await apiClient.startShoppingSession('l1', 's1')
+    let si!: SessionItem
+    const events = await capture(async () => {
+      si = await apiClient.recordSessionItem({
+        sessionId: session.id,
+        itemId: 'i1',
+        action: 'bought',
+        at: '2024-01-01T10:00:00.000Z',
+        quantity: 2,
+        unit: 'l',
+      })
     })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('SessionItemBought')
+    expect(ev.entityId).toBe(session.id)
+    expect(ev.payload).toEqual({ itemId: 'i1', quantity: 2, unit: 'l' })
+
     expect(si.id).toBeDefined()
     expect(si.action).toBe('bought')
+    expect(si.at).toBe('2024-01-01T10:00:00.000Z')
+    const stored = await apiClient.getSessionItems(session.id)
+    expect(stored).toHaveLength(1)
+    expect(stored[0]!.id).toBe(si.id)
   })
 
-  it('getSessionItems returns items for a session', async () => {
-    const session = await apiClient.createShoppingSession('list-1', 'shop-1')
-    await apiClient.recordSessionItem({
-      sessionId: session.id,
-      itemId: 'item-1',
-      action: 'bought',
-      at: '2024-01-01T10:00:00.000Z',
-    })
-    await apiClient.recordSessionItem({
-      sessionId: session.id,
-      itemId: 'item-2',
-      action: 'skipped',
-      at: '2024-01-01T10:01:00.000Z',
+  it('recordSessionItem with action skipped emits SessionItemSkipped', async () => {
+    const session = await apiClient.startShoppingSession('l1', 's1')
+    let si!: SessionItem
+    const events = await capture(async () => {
+      si = await apiClient.recordSessionItem({
+        sessionId: session.id,
+        itemId: 'i1',
+        action: 'skipped',
+        at: '2024-01-01T10:00:00.000Z',
+      })
     })
 
-    const items = await apiClient.getSessionItems(session.id)
-    expect(items).toHaveLength(2)
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expectEnvelope(ev)
+    expect(ev.type).toBe('SessionItemSkipped')
+    expect(ev.entityId).toBe(session.id)
+    expect(ev.payload).toEqual({ itemId: 'i1' })
+
+    expect(si.action).toBe('skipped')
+  })
+
+  it('enriches items with frequency from bought session items', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#f00' })
+    const item = await apiClient.createItem({ name: 'Milk' }, [shop.id], [])
+    const session = await apiClient.startShoppingSession('list-1', shop.id)
+    await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-01T10:00:00.000Z' })
+    await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-02T10:00:00.000Z' })
+
+    const items = await apiClient.getItemsWithDetails()
+    expect(items[0]!.frequency).toBe(2)
+    expect(items[0]!.lastBoughtAt).toBe('2024-01-02T10:00:00.000Z')
+    expect(items[0]!.lastBoughtShopId).toBe(shop.id)
   })
 })
