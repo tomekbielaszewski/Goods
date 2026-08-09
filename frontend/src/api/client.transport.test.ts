@@ -12,6 +12,8 @@ import type { ServerEvent } from './transport'
 //   and keeps the outbox untouched on failure.
 // - connectStream(): () => void wires subscribeEventStream(lastSeq, handler);
 //   stream events are applied, notify listeners, and advance lastSeq.
+// - Mutations auto-publish: commit() itself triggers a sync, so events reach
+//   the backend without waiting for loadData() to call sync().
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -231,6 +233,116 @@ describe('sync', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(apiClient.sync()).rejects.toThrow('network down')
+    await apiClient.sync()
+
+    const bodies = postBodies(fetchMock)
+    expect(bodies).toHaveLength(2)
+    const firstId = bodies[0]!.events[0]!.id
+    const secondId = bodies[1]!.events[0]!.id
+    expect(secondId).toBe(firstId)
+    expect(secondId).not.toBe(shop.id)
+  })
+})
+
+// ── auto-sync after mutation ──────────────────────────────────────────────────
+
+describe('auto-sync after mutation', () => {
+  it('publishes the outbox automatically after a single mutation (no manual sync)', async () => {
+    const fetchMock = mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 5 }) },
+    ])
+
+    await apiClient.createShop({ name: 'S', color: '#000000' })
+    await tick()
+    await tick()
+
+    const bodies = postBodies(fetchMock)
+    expect(bodies).toHaveLength(1)
+    const [ev] = bodies[0]!.events
+    expect(ev).toMatchObject({ type: 'ShopCreated', payload: { name: 'S', color: '#000000' } })
+  })
+
+  it('batches events committed before the sync completes into a single POST', async () => {
+    const fetchMock = mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 2, duplicates: 0, lastSeq: 7 }) },
+    ])
+
+    await Promise.all([
+      apiClient.createShop({ name: 'S', color: '#000000' }),
+      apiClient.createList('Groceries'),
+    ])
+    await tick()
+    await tick()
+
+    const bodies = postBodies(fetchMock)
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.events.map(e => e.type)).toEqual(['ShopCreated', 'ListCreated'])
+  })
+
+  it('persists across a page reload: the auto-published event is replayed by loadData', async () => {
+    const server: ServerEvent[] = []
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      const method = init?.method ?? 'GET'
+      if (method === 'POST' && u.includes('/api/events')) {
+        const body = JSON.parse(init!.body as string) as { events: AppEvent[] }
+        for (const e of body.events) server.push({ ...e, seq: server.length + 1 })
+        return jsonResponse({ accepted: body.events.length, duplicates: 0, lastSeq: server.length })
+      }
+      if (method === 'GET' && u.includes('/api/events?since=')) {
+        const since = Number(u.split('since=')[1])
+        return jsonResponse({ events: server.filter(e => e.seq > since), lastSeq: server.length })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const shop = await apiClient.createShop({ name: 'S', color: '#000000' })
+    await tick()
+    await tick()
+
+    apiClient.reset() // simulate a page refresh: local state is gone
+    await apiClient.loadData()
+
+    const shops = await apiClient.getShops()
+    expect(shops).toHaveLength(1)
+    expect(shops[0]!.id).toBe(shop.id)
+    expect(shops[0]!.name).toBe('S')
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('leaves the outbox empty after auto-publish: a later sync POSTs no events', async () => {
+    const fetchMock = mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 5 }) },
+    ])
+
+    await apiClient.createShop({ name: 'S', color: '#000000' })
+    await tick()
+    await tick()
+    await apiClient.sync()
+
+    const bodies = postBodies(fetchMock)
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0]!.events).toHaveLength(1)
+    expect(bodies[1]!.events).toEqual([])
+  })
+
+  it('keeps the outbox when the automatic publish fails; a later sync retries the same event id', async () => {
+    let attempts = 0
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      if (init?.method === 'POST') {
+        attempts++
+        if (attempts === 1) throw new Error('network down')
+        return jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 9 })
+      }
+      throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const shop = await apiClient.createShop({ name: 'S', color: '#000000' })
+    await tick()
+    expect(fetchMock.mock.calls.length).toBe(1)
+
     await apiClient.sync()
 
     const bodies = postBodies(fetchMock)
