@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ListsScreen from './pages/ListsScreen'
@@ -12,11 +12,18 @@ import { apiClient } from './api/client'
 import { useStore } from './store/useStore'
 
 function App() {
+  const [ready, setReady] = useState(false)
+
   useEffect(() => {
-    void useStore.getState().loadData()
+    void useStore.getState().loadData().then(
+      () => setReady(true),
+      () => setReady(true),
+    )
     const unsubscribe = apiClient.connectStream()
     return unsubscribe
   }, [])
+
+  if (!ready) return null
 
   return (
     <Routes>
