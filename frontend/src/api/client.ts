@@ -75,7 +75,7 @@ class ApiClient {
   private stamp(event: EventInput): AppEvent {
     return {
       ...event,
-      id: event.entityId,
+      id: crypto.randomUUID(),
       clientId: this.clientId,
       lamport: ++this.lamport,
       timestamp: this.nowIso(),
