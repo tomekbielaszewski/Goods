@@ -89,12 +89,16 @@ export const useStore = create<AppStore>((set) => ({
   },
 
   updateShop: async (id, patch) => {
-    const updated = await apiClient.updateShop(id, patch)
-    set(state => ({ shops: state.shops.map(s => s.id === id ? updated : s) }))
+    let updated: Shop | undefined
+    if (patch.name !== undefined) updated = await apiClient.renameShop(id, patch.name)
+    if (patch.color !== undefined) updated = await apiClient.changeShopColor(id, patch.color)
+    if (updated) {
+      set(state => ({ shops: state.shops.map(s => s.id === id ? updated : s) }))
+    }
   },
 
   deleteShop: async (id) => {
-    await apiClient.deleteShop(id)
+    await apiClient.softDeleteShop(id)
     set(state => ({ shops: state.shops.filter(s => s.id !== id) }))
   },
 
@@ -104,26 +108,51 @@ export const useStore = create<AppStore>((set) => ({
   },
 
   upsertItem: async (item, shopIds, tagIds) => {
-    await apiClient.upsertItem(item, shopIds, tagIds)
+    const existing = useStore.getState().items.find(i => i.id === item.id)
+    if (existing) {
+      const patch: Partial<Item> = {}
+      if (existing.name !== item.name) patch.name = item.name
+      if (existing.unit !== item.unit) patch.unit = item.unit
+      if (existing.defaultQuantity !== item.defaultQuantity) patch.defaultQuantity = item.defaultQuantity
+      if (existing.description !== item.description) patch.description = item.description
+      if (existing.notes !== item.notes) patch.notes = item.notes
+      if (Object.keys(patch).length > 0) {
+        await apiClient.updateItem(item.id, patch)
+      }
+      await apiClient.saveItemShopsAndTags(item.id, shopIds, tagIds)
+    } else {
+      await apiClient.createItem(
+        {
+          name: item.name,
+          unit: item.unit,
+          defaultQuantity: item.defaultQuantity,
+          description: item.description,
+          notes: item.notes,
+        },
+        shopIds,
+        tagIds,
+      )
+      await apiClient.saveItemShopsAndTags(item.id, shopIds, tagIds)
+    }
   },
 
   addItemToShop: async (itemId, shopId) => {
-    await apiClient.addItemToShop(itemId, shopId)
+    await apiClient.assignShopToItem(itemId, shopId)
   },
 
   removeItemFromShop: async (itemId, shopId) => {
-    await apiClient.removeItemFromShop(itemId, shopId)
+    await apiClient.removeShopFromItem(itemId, shopId)
   },
 
   upsertList: async (list) => {
-    const saved = await apiClient.upsertList(list)
-    set(state => {
-      const exists = state.lists.some(l => l.id === saved.id)
-      if (exists) {
-        return { lists: state.lists.map(l => l.id === saved.id ? saved : l) }
-      }
-      return { lists: [...state.lists, saved] }
-    })
+    const exists = useStore.getState().lists.some(l => l.id === list.id)
+    if (exists) {
+      const saved = await apiClient.renameList(list.id, list.name)
+      set(state => ({ lists: state.lists.map(l => l.id === list.id ? saved : l) }))
+    } else {
+      const saved = await apiClient.createList(list.name)
+      set(state => ({ lists: [...state.lists, saved] }))
+    }
   },
 
   deleteList: async (id) => {
@@ -137,11 +166,28 @@ export const useStore = create<AppStore>((set) => ({
   },
 
   upsertListItem: async (li) => {
-    await apiClient.upsertListItem(li)
+    const existing = useStore.getState().listItems.find(x => x.id === li.id)
+    if (!existing) {
+      await apiClient.addListItem({
+        listId: li.listId,
+        itemId: li.itemId,
+        state: li.state,
+        quantity: li.quantity,
+        unit: li.unit,
+        notes: li.notes,
+      })
+      return
+    }
+    if (existing.state !== li.state) {
+      await apiClient.setListItemState(li.id, li.state)
+    }
+    if (existing.quantity !== li.quantity || existing.unit !== li.unit) {
+      await apiClient.changeListItemQuantity(li.id, li.quantity, li.unit)
+    }
   },
 
   updateListItemState: async (id, state) => {
-    await apiClient.updateListItemState(id, state)
+    await apiClient.setListItemState(id, state)
   },
 
   skipShopForListItem: async (liId, shopId) => {
@@ -153,7 +199,7 @@ export const useStore = create<AppStore>((set) => ({
   },
 
   createShoppingSession: async (listId, shopId) => {
-    await apiClient.createShoppingSession(listId, shopId)
+    await apiClient.startShoppingSession(listId, shopId)
   },
 
   recordSessionItem: async (input) => {

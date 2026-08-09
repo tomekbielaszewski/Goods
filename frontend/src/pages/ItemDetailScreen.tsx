@@ -1,6 +1,6 @@
 import { type FC, useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { apiClient } from '../api/client'
+import { apiClient, type ItemPatch } from '../api/client'
 import type { Shop, Tag, ItemWithDetails, SessionItem } from '../types'
 import ShopDot from '../components/ShopDot'
 import TagBadge from '../components/TagBadge'
@@ -70,27 +70,37 @@ const ItemDetailScreen: FC = () => {
 
   const save = async () => {
     if (!name.trim()) return
-    const now = new Date().toISOString()
-    const itemId = isNew ? crypto.randomUUID() : id!
     const parsedQty = Math.max(1, Number(defaultQuantity) || 1)
     const newUnit = unit || undefined
     const oldUnit = item?.unit
 
-    await apiClient.upsertItem(
-      {
-        id: itemId,
-        name: name.trim(),
-        unit: newUnit,
-        defaultQuantity: parsedQty,
-        description: description || undefined,
-        notes: notes || undefined,
-        version: item ? item.version + 1 : 1,
-        createdAt: item?.createdAt ?? now,
-        updatedAt: now,
-      },
-      selectedShops,
-      selectedTags,
-    )
+    let itemId: string
+    if (isNew) {
+      const created = await apiClient.createItem(
+        {
+          name: name.trim(),
+          unit: newUnit,
+          defaultQuantity: parsedQty,
+          description: description || undefined,
+          notes: notes || undefined,
+        },
+        selectedShops,
+        selectedTags,
+      )
+      itemId = created.id
+    } else {
+      const patch: ItemPatch = {}
+      if (item && item.name !== name.trim()) patch.name = name.trim()
+      if (item && item.unit !== newUnit) patch.unit = newUnit
+      if (item && item.defaultQuantity !== parsedQty) patch.defaultQuantity = parsedQty
+      if (item && (item.description ?? undefined) !== (description || undefined)) patch.description = description || undefined
+      if (item && (item.notes ?? undefined) !== (notes || undefined)) patch.notes = notes || undefined
+      if (Object.keys(patch).length > 0) {
+        await apiClient.updateItem(id!, patch)
+      }
+      await apiClient.saveItemShopsAndTags(id!, selectedShops, selectedTags)
+      itemId = id!
+    }
 
     // Cascade unit change to list items that still carry the old default unit.
     // List items with a user-overridden unit (different from the old default) are left untouched.
@@ -99,23 +109,19 @@ const ItemDetailScreen: FC = () => {
       await Promise.all(
         affected
           .filter(li => li.unit === oldUnit)
-          .map(li => apiClient.upsertListItem({ ...li, unit: newUnit, updatedAt: now, version: li.version + 1 }))
+          .map(li => apiClient.changeListItemQuantity(li.id, li.quantity, newUnit))
       )
     }
 
     // If coming from list add flow, add to that list
     const listId = searchParams.get('listId')
     if (listId && isNew) {
-      await apiClient.upsertListItem({
-        id: crypto.randomUUID(),
+      await apiClient.addListItem({
         listId,
         itemId,
         state: 'active',
         quantity: parsedQty,
         unit: unit || undefined,
-        version: 1,
-        addedAt: now,
-        updatedAt: now,
       })
       navigate(`/list/${listId}`)
       return

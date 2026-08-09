@@ -36,10 +36,10 @@ const ShopItemsScreen: FC = () => {
   const toggle = async (item: ItemWithDetails) => {
     if (!id) return
     if (shopItemIds.has(item.id)) {
-      await apiClient.removeItemFromShop(item.id, id)
+      await apiClient.removeShopFromItem(item.id, id)
       setShopItemIds(prev => { const s = new Set(prev); s.delete(item.id); return s })
     } else {
-      await apiClient.addItemToShop(item.id, id)
+      await apiClient.assignShopToItem(item.id, id)
       setShopItemIds(prev => new Set(prev).add(item.id))
     }
   }
