@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import type { Shop, ItemWithDetails } from '../types'
 import TagBadge from '../components/TagBadge'
 import ShopDot from '../components/ShopDot'
+import { useLiveData } from '../components/useLiveData'
 
 const normalize = (s: string) =>
   s.trim().toLowerCase()
@@ -32,6 +33,7 @@ const ShopItemsScreen: FC = () => {
   }
 
   useEffect(() => { void load() }, [id])
+  useLiveData(load)
 
   const toggle = async (item: ItemWithDetails) => {
     if (!id) return

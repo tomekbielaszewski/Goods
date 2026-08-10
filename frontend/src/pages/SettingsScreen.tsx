@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
+import { useLiveData } from '../components/useLiveData'
 
 const PALETTE = [
   '#ef4444', '#6e2600', '#eab308', '#22c55e',
@@ -31,6 +32,7 @@ const SettingsScreen: FC = () => {
 
   const load = () => apiClient.getShops().then(s => setShops(s.filter(s => !s.deletedAt)))
   useEffect(() => { void load() }, [])
+  useLiveData(load)
 
   const save = async () => {
     if (!name.trim()) return

@@ -5,6 +5,7 @@ import type { Shop, Tag, ItemWithDetails, SessionItem } from '../types'
 import ShopDot from '../components/ShopDot'
 import TagBadge from '../components/TagBadge'
 import { normalizeTag } from '../utils/tagUtils'
+import { useLiveData } from '../components/useLiveData'
 
 const COMMON_UNITS = ['kg', 'g', 'l', 'ml', 'pcs', 'pack', 'bottle', 'bag', 'box']
 
@@ -32,7 +33,7 @@ const ItemDetailScreen: FC = () => {
   const [history, setHistory]       = useState<SessionItem[]>([])
   const [sessionShopMap, setSessionShopMap] = useState<Map<string, string>>(new Map())
 
-  useEffect(() => {
+  const load = () => {
     apiClient.getShops().then(setShops)
     apiClient.getTags().then(setTags)
 
@@ -61,7 +62,10 @@ const ItemDetailScreen: FC = () => {
         setSessionShopMap(map)
       })
     }
-  }, [id, isNew])
+  }
+
+  useEffect(load, [id, isNew])
+  useLiveData(load)
 
   const changeUnit = (newUnit: string) => {
     setUnit(newUnit)

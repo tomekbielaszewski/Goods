@@ -1,5 +1,6 @@
 import { type FC, useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLiveData } from '../components/useLiveData'
 
 interface BugReport {
   id: string
@@ -29,6 +30,7 @@ const BugReportsScreen: FC = () => {
   }
 
   useEffect(() => { void load() }, [])
+  useLiveData(load)
 
   const [copiedId, setCopiedId] = useState<string | null>(null)
 

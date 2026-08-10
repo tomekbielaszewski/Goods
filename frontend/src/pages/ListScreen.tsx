@@ -7,6 +7,7 @@ import ItemCard from '../components/ItemCard'
 import SearchInput from '../components/SearchInput'
 import SuggestionsPanel from '../components/SuggestionsPanel'
 import SortToggle from '../components/SortToggle'
+import { useLiveData } from '../components/useLiveData'
 
 const ListScreen: FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -27,6 +28,7 @@ const ListScreen: FC = () => {
   const isArchived = !!list?.archivedAt
 
   const reload = useCallback(() => setRefresh(r => r + 1), [])
+  useLiveData(reload)
 
   useEffect(() => {
     if (!menuOpen) return
