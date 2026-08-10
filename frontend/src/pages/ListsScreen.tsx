@@ -1,7 +1,7 @@
 import { type FC, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/schema'
-import { upsertList } from '../db/queries'
+import { apiClient } from '../api/client'
+import { useLiveData } from '../components/useLiveData'
 import type { List } from '../types'
 
 const ListsScreen: FC = () => {
@@ -11,42 +11,31 @@ const ListsScreen: FC = () => {
   const navigate = useNavigate()
 
   const load = () =>
-    db.lists.filter(l => !l.deletedAt).sortBy('createdAt').then(ls => {
-      const sorted = [...ls].reverse()
+    apiClient.getLists().then(ls => {
+      const sorted = [...ls].filter(l => !l.deletedAt).reverse()
       const active = sorted.filter(l => !l.archivedAt)
       const archived = sorted.filter(l => !!l.archivedAt)
       setLists([...active, ...archived])
     })
 
   useEffect(() => { void load() }, [])
+  useLiveData(load)
 
   const createList = async () => {
     if (!newName.trim()) return
-    const now = new Date().toISOString()
-    const list: List = {
-      id: crypto.randomUUID(),
-      name: newName.trim(),
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    }
-    await upsertList(list)
+    await apiClient.createList(newName.trim())
     setNewName('')
     setCreating(false)
     void load()
   }
 
   const deleteList = async (id: string) => {
-    const list = await db.lists.get(id)
-    if (!list) return
-    await upsertList({ ...list, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), version: list.version + 1 })
+    await apiClient.deleteList(id)
     void load()
   }
 
   const archiveList = async (id: string) => {
-    const list = await db.lists.get(id)
-    if (!list) return
-    await upsertList({ ...list, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), version: list.version + 1 })
+    await apiClient.archiveList(id)
     void load()
   }
 
@@ -132,7 +121,7 @@ const ListCard: FC<{
   const [counts, setCounts] = useState({ active: 0, total: 0 })
 
   useEffect(() => {
-    db.listItems.where('listId').equals(list.id).toArray().then(items => {
+    apiClient.getListItemsWithItems(list.id).then(items => {
       setCounts({ active: items.filter(i => i.state === 'active').length, total: items.length })
     })
   }, [list.id])

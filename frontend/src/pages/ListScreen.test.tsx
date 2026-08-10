@@ -1,12 +1,26 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { vi } from 'vitest'
 import ListScreen from './ListScreen'
-import { db } from '../db/schema'
+import { apiClient } from '../api/client'
 import { useStore } from '../store/useStore'
-import type { Item, List, ListItem, Shop } from '../types'
+import type { Item, List, ListItem, Shop, Tag, ItemShop, ItemTag, ListItemSkippedShop, ShoppingSession, SessionItem } from '../types'
+import type { ServerEvent } from '../api/transport'
+
+const store = apiClient as unknown as {
+  shops: Map<string, Shop>
+  items: Map<string, Item>
+  tags: Map<string, Tag>
+  lists: Map<string, List>
+  listItems: Map<string, ListItem>
+  itemShops: ItemShop[]
+  itemTags: ItemTag[]
+  listItemSkippedShops: ListItemSkippedShop[]
+  shoppingSessions: Map<string, ShoppingSession>
+  sessionItems: SessionItem[]
+}
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
@@ -50,19 +64,7 @@ const makeShop = (id: string, overrides: Partial<Shop> = {}): Shop => ({
 
 beforeEach(async () => {
   useStore.setState({ shoppingModeShopId: null })
-  await db.transaction('rw', [
-    db.shops, db.items, db.tags, db.itemShops, db.itemTags,
-    db.lists, db.listItems, db.listItemSkippedShops,
-    db.shoppingSessions, db.sessionItems, db.pendingSyncIds,
-  ], async () => {
-    await Promise.all([
-      db.shops.clear(), db.items.clear(), db.tags.clear(),
-      db.itemShops.clear(), db.itemTags.clear(),
-      db.lists.clear(), db.listItems.clear(),
-      db.listItemSkippedShops.clear(), db.shoppingSessions.clear(),
-      db.sessionItems.clear(), db.pendingSyncIds.clear(),
-    ])
-  })
+  apiClient.reset()
 })
 
 // ---------------------------------------------------------------------------
@@ -74,8 +76,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const user = userEvent.setup()
     const list = makeList('l1')
     const item = makeItem('i1', { name: 'Apples', unit: 'kg', defaultQuantity: 3 })
-    await db.lists.add(list)
-    await db.items.add(item)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
 
     renderList('l1')
 
@@ -85,8 +87,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const btn = await screen.findByRole('button', { name: /Apples/ })
     await user.click(btn)
 
-    await waitFor(async () => {
-      const listItems = await db.listItems.where('listId').equals('l1').toArray()
+    await waitFor(() => {
+      const listItems = [...store.listItems.values()].filter(li => li.listId === 'l1')
       expect(listItems).toHaveLength(1)
       expect(listItems[0].quantity).toBe(3)
     })
@@ -97,8 +99,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const list = makeList('l1')
     // Item has no defaultQuantity (e.g. synced from old server)
     const item = makeItem('i1', { name: 'Apples', unit: 'kg' })
-    await db.lists.add(list)
-    await db.items.add(item)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
 
     renderList('l1')
 
@@ -107,8 +109,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const btn = await screen.findByRole('button', { name: /Apples/ })
     await user.click(btn)
 
-    await waitFor(async () => {
-      const listItems = await db.listItems.where('listId').equals('l1').toArray()
+    await waitFor(() => {
+      const listItems = [...store.listItems.values()].filter(li => li.listId === 'l1')
       expect(listItems).toHaveLength(1)
       expect(listItems[0].quantity).toBe(1)
     })
@@ -118,8 +120,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const user = userEvent.setup()
     const list = makeList('l1')
     const item = makeItem('i1', { name: 'Flour', unit: 'g' })
-    await db.lists.add(list)
-    await db.items.add(item)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
 
     renderList('l1')
 
@@ -128,8 +130,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const btn = await screen.findByRole('button', { name: /Flour/ })
     await user.click(btn)
 
-    await waitFor(async () => {
-      const listItems = await db.listItems.where('listId').equals('l1').toArray()
+    await waitFor(() => {
+      const listItems = [...store.listItems.values()].filter(li => li.listId === 'l1')
       expect(listItems).toHaveLength(1)
       expect(listItems[0].quantity).toBe(100)
     })
@@ -139,8 +141,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const user = userEvent.setup()
     const list = makeList('l1')
     const item = makeItem('i1', { name: 'Milk', unit: 'ml' })
-    await db.lists.add(list)
-    await db.items.add(item)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
 
     renderList('l1')
 
@@ -149,8 +151,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     const btn = await screen.findByRole('button', { name: /Milk/ })
     await user.click(btn)
 
-    await waitFor(async () => {
-      const listItems = await db.listItems.where('listId').equals('l1').toArray()
+    await waitFor(() => {
+      const listItems = [...store.listItems.values()].filter(li => li.listId === 'l1')
       expect(listItems).toHaveLength(1)
       expect(listItems[0].quantity).toBe(100)
     })
@@ -161,9 +163,9 @@ describe('ListScreen — quantity default when adding via search', () => {
     const list = makeList('l1')
     const item = makeItem('i1', { name: 'Butter' })
     const li = makeListItem('li1', 'l1', 'i1')
-    await db.lists.add(list)
-    await db.items.add(item)
-    await db.listItems.add(li)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
 
     renderList('l1')
 
@@ -186,11 +188,11 @@ describe('ListScreen — quantity default when adding via search', () => {
     const user = userEvent.setup()
     const list = makeList('l1')
     const item = makeItem('i1', { name: 'Bread', unit: 'pcs', defaultQuantity: 1 })
-    // Pre-seed an active listItem so it already exists in Dexie
+    // Pre-seed an active listItem so it already exists
     const existing = makeListItem('li-seed', 'l1', 'i1')
-    await db.lists.add(list)
-    await db.items.add(item)
-    await db.listItems.add(existing)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(existing.id, existing)
 
     renderList('l1')
 
@@ -199,8 +201,8 @@ describe('ListScreen — quantity default when adding via search', () => {
     await user.type(input, 'Bread')
     // The item is excluded from search results (it's already active)
     // so no dropdown button should appear for it
-    await waitFor(async () => {
-      const listItems = await db.listItems.where('listId').equals('l1').toArray()
+    await waitFor(() => {
+      const listItems = [...store.listItems.values()].filter(li => li.listId === 'l1')
       expect(listItems).toHaveLength(1)
     })
   })
@@ -218,7 +220,7 @@ describe('ListScreen — archived list', () => {
 
   it('shows Archived badge instead of Shop button', async () => {
     const list = makeArchivedList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -228,7 +230,7 @@ describe('ListScreen — archived list', () => {
 
   it('does not render the search input', async () => {
     const list = makeArchivedList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -240,9 +242,9 @@ describe('ListScreen — archived list', () => {
     const list = makeArchivedList('l1')
     const item = makeItem('i1', { name: 'Butter' })
     const li = makeListItem('li1', 'l1', 'i1')
-    await db.lists.add(list)
-    await db.items.add(item)
-    await db.listItems.add(li)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
 
     renderList('l1')
 
@@ -254,9 +256,9 @@ describe('ListScreen — archived list', () => {
     const list = makeArchivedList('l1')
     const item = makeItem('i1', { name: 'Milk', unit: 'l' })
     const li = makeListItem('li1', 'l1', 'i1', { quantity: 2 })
-    await db.lists.add(list)
-    await db.items.add(item)
-    await db.listItems.add(li)
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
 
     renderList('l1')
 
@@ -274,7 +276,7 @@ describe('ListScreen — rename list', () => {
   it('opens a rename dialog from the three-dot menu', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -285,7 +287,7 @@ describe('ListScreen — rename list', () => {
   it('pre-fills the input with the current list name', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -299,7 +301,7 @@ describe('ListScreen — rename list', () => {
   it('saves the new name to the database', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -311,8 +313,8 @@ describe('ListScreen — rename list', () => {
     await user.type(input, 'Weekly shopping')
     await user.click(screen.getByRole('button', { name: /^save$/i }))
 
-    await waitFor(async () => {
-      const updated = await db.lists.get('l1')
+    await waitFor(() => {
+      const updated = store.lists.get('l1')
       expect(updated?.name).toBe('Weekly shopping')
     })
   })
@@ -320,7 +322,7 @@ describe('ListScreen — rename list', () => {
   it('updates the header title after rename', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -340,7 +342,7 @@ describe('ListScreen — rename list', () => {
   it('does not show rename option for archived lists', async () => {
     const user = userEvent.setup()
     const list: List = { ...makeList('l1'), archivedAt: new Date().toISOString() }
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -351,7 +353,7 @@ describe('ListScreen — rename list', () => {
   it('closes the dialog on cancel without saving', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
-    await db.lists.add(list)
+    store.lists.set(list.id, list)
 
     renderList('l1')
 
@@ -364,8 +366,110 @@ describe('ListScreen — rename list', () => {
     await user.click(screen.getByRole('button', { name: /cancel/i }))
 
     expect(screen.queryByRole('textbox', { name: /list name/i })).not.toBeInTheDocument()
-    const updated = await db.lists.get('l1')
+    const updated = store.lists.get('l1')
     expect(updated?.name).toBe('Test list')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// live updates from remote events (SSE stream)
+// ---------------------------------------------------------------------------
+// A change made in ANOTHER tab arrives here as an event on the SSE stream and
+// is applied to apiClient's maps. The mounted screen must re-read (and thus
+// re-render) WITHOUT any navigation or remount.
+
+describe('ListScreen — live updates from remote events', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const remoteEvent = (
+    type: string,
+    entityId: string,
+    payload: Record<string, unknown>,
+    seq: number,
+    lamport: number,
+  ): ServerEvent => ({
+    id: `evt-${seq}`,
+    clientId: 'remote-client',
+    lamport,
+    timestamp: '2026-08-09T10:00:00.000Z',
+    entityId,
+    type,
+    payload,
+    seq,
+  } as ServerEvent)
+
+  // Mirrors sseResponse from src/api/client.transport.test.ts: an open SSE
+  // response whose events are pushed with feed().
+  const sseResponse = (): { response: Response; feed: (ev: ServerEvent) => void } => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+    const encoder = new TextEncoder()
+    return {
+      response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+      feed: (ev: ServerEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n`)),
+    }
+  }
+
+  // Stubs fetch for the stream route only (screens never fetch on their own)
+  // and opens the client's SSE stream, returning feed() to deliver events.
+  const openStream = (): { unsubscribe: () => void; feed: (ev: ServerEvent) => void } => {
+    const { response, feed } = sseResponse()
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      if (String(url).includes('/api/events/stream')) return response
+      throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${url}`)
+    }))
+    const unsubscribe = apiClient.connectStream()
+    return { unsubscribe, feed }
+  }
+
+  it('re-renders a quantity change that arrives over the event stream', async () => {
+    const list = makeList('l1')
+    const item = makeItem('i1', { name: 'Apples' })
+    const li = makeListItem('li1', 'l1', 'i1', { quantity: 1, unit: '' })
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+
+    renderList('l1')
+
+    // Initial render shows Apples with quantity 1.
+    await screen.findByText('Apples')
+    expect(screen.getByText('1')).toBeInTheDocument()
+
+    // Another tab changes the quantity 1 → 3; the event arrives via the stream.
+    const { unsubscribe, feed } = openStream()
+    feed(remoteEvent('ListItemQuantityChanged', 'li1', { quantity: 3, unit: '' }, 5, 9))
+
+    // The mounted screen must show the NEW quantity WITHOUT navigation.
+    await waitFor(() => {
+      expect(screen.getByText('3')).toBeInTheDocument()
+    })
+    unsubscribe()
+  })
+
+  it('renders a list item added remotely without navigation', async () => {
+    const list = makeList('l1')
+    const item = makeItem('i2', { name: 'Bananas' })
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+
+    renderList('l1')
+
+    // No list items yet: the empty state is shown and there is no item card.
+    await screen.findByText('No items yet. Search below to add some.')
+    expect(screen.queryByRole('button', { name: /remove from list/i })).toBeNull()
+
+    // Another tab adds Bananas to this list; the event arrives via the stream.
+    const { unsubscribe, feed } = openStream()
+    feed(remoteEvent('ListItemAdded', 'li2', { listId: 'l1', itemId: 'i2', state: 'active', quantity: 2, unit: '' }, 6, 10))
+
+    // The mounted screen must render the new item card WITHOUT navigation.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /remove from list/i })).toBeInTheDocument()
+    })
+    unsubscribe()
   })
 })
 
@@ -381,11 +485,11 @@ describe('ListScreen — purchase history', () => {
     const item = makeItem('i1', { name: 'Milk', unit: 'l', defaultQuantity: 1 })
     const li   = makeListItem('li1', 'l1', 'i1')
 
-    await db.lists.add(list)
-    await db.shops.add(shop)
-    await db.items.add(item)
-    await db.listItems.add(li)
-    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+    store.lists.set(list.id, list)
+    store.shops.set(shop.id, shop)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+    store.itemShops.push({ itemId: 'i1', shopId: 's1' })
 
     renderList('l1')
 
@@ -398,8 +502,8 @@ describe('ListScreen — purchase history', () => {
     await user.click(milkBtn)
 
     // A sessionItem with action='bought' should be in the DB
-    await waitFor(async () => {
-      const sessionItems = await db.sessionItems.toArray()
+    await waitFor(() => {
+      const sessionItems = store.sessionItems
       expect(sessionItems).toHaveLength(1)
       expect(sessionItems[0]!.itemId).toBe('i1')
       expect(sessionItems[0]!.action).toBe('bought')
@@ -413,11 +517,11 @@ describe('ListScreen — purchase history', () => {
     const item = makeItem('i1', { name: 'Bread' })
     const li   = makeListItem('li1', 'l1', 'i1')
 
-    await db.lists.add(list)
-    await db.shops.add(shop)
-    await db.items.add(item)
-    await db.listItems.add(li)
-    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+    store.lists.set(list.id, list)
+    store.shops.set(shop.id, shop)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+    store.itemShops.push({ itemId: 'i1', shopId: 's1' })
 
     renderList('l1')
 
@@ -427,8 +531,8 @@ describe('ListScreen — purchase history', () => {
     const breadBtn = await screen.findByText('Bread')
     await user.click(breadBtn)
 
-    await waitFor(async () => {
-      const sessions = await db.shoppingSessions.toArray()
+    await waitFor(() => {
+      const sessions = [...store.shoppingSessions.values()]
       expect(sessions).toHaveLength(1)
       expect(sessions[0]!.shopId).toBe('s1')
       expect(sessions[0]!.listId).toBe('l1')
@@ -442,11 +546,11 @@ describe('ListScreen — purchase history', () => {
     const item = makeItem('i1', { name: 'Eggs' })
     const li   = makeListItem('li1', 'l1', 'i1')
 
-    await db.lists.add(list)
-    await db.shops.add(shop)
-    await db.items.add(item)
-    await db.listItems.add(li)
-    await db.itemShops.put({ itemId: 'i1', shopId: 's1' })
+    store.lists.set(list.id, list)
+    store.shops.set(shop.id, shop)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+    store.itemShops.push({ itemId: 'i1', shopId: 's1' })
 
     renderList('l1')
 
@@ -467,8 +571,8 @@ describe('ListScreen — purchase history', () => {
     fireEvent.touchMove(card.closest('button')!, { touches: [{ clientX: 100 }] }) // -100px delta > threshold(60)
     fireEvent.touchEnd(card.closest('button')!)
 
-    await waitFor(async () => {
-      const sessionItems = await db.sessionItems.toArray()
+    await waitFor(() => {
+      const sessionItems = store.sessionItems
       expect(sessionItems).toHaveLength(1)
       expect(sessionItems[0]!.itemId).toBe('i1')
       expect(sessionItems[0]!.action).toBe('skipped')
@@ -484,14 +588,16 @@ describe('ListScreen — purchase history', () => {
     const li1   = makeListItem('li1', 'l1', 'i1')
     const li2   = makeListItem('li2', 'l1', 'i2')
 
-    await db.lists.add(list)
-    await db.shops.add(shop)
-    await db.items.bulkAdd([item1, item2])
-    await db.listItems.bulkAdd([li1, li2])
-    await db.itemShops.bulkPut([
+    store.lists.set(list.id, list)
+    store.shops.set(shop.id, shop)
+    store.items.set(item1.id, item1)
+    store.items.set(item2.id, item2)
+    store.listItems.set(li1.id, li1)
+    store.listItems.set(li2.id, li2)
+    store.itemShops.push(
       { itemId: 'i1', shopId: 's1' },
       { itemId: 'i2', shopId: 's1' },
-    ])
+    )
 
     renderList('l1')
 
@@ -503,10 +609,10 @@ describe('ListScreen — purchase history', () => {
     // Buy second item
     await user.click(await screen.findByText('Bread'))
 
-    await waitFor(async () => {
-      const sessions = await db.shoppingSessions.toArray()
+    await waitFor(() => {
+      const sessions = [...store.shoppingSessions.values()]
       expect(sessions).toHaveLength(1)   // only one session created
-      const sessionItems = await db.sessionItems.toArray()
+      const sessionItems = store.sessionItems
       expect(sessionItems).toHaveLength(2)
     })
   })

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ListsScreen from './pages/ListsScreen'
@@ -7,15 +7,35 @@ import RepositoryScreen from './pages/RepositoryScreen'
 import ItemDetailScreen from './pages/ItemDetailScreen'
 import SettingsScreen from './pages/SettingsScreen'
 import ShopItemsScreen from './pages/ShopItemsScreen'
-import ConflictsScreen from './pages/ConflictsScreen'
 import BugReportsScreen from './pages/BugReportsScreen'
-import { scheduleSync } from './sync/syncClient'
+import { apiClient } from './api/client'
+import { useStore } from './store/useStore'
 
 function App() {
+  const [ready, setReady] = useState(false)
+
   useEffect(() => {
-    const cleanup = scheduleSync()
-    return cleanup
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+    void useStore.getState().loadData().then(
+      () => {
+        if (disposed) return
+        unsubscribe = apiClient.connectStream()
+        setReady(true)
+      },
+      () => {
+        if (disposed) return
+        unsubscribe = apiClient.connectStream()
+        setReady(true)
+      },
+    )
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
   }, [])
+
+  if (!ready) return null
 
   return (
     <Routes>
@@ -25,7 +45,6 @@ function App() {
       <Route element={<Layout><ItemDetailScreen /></Layout>}  path="/item/:id" />
       <Route element={<Layout><SettingsScreen /></Layout>}    path="/settings" />
       <Route element={<Layout><ShopItemsScreen /></Layout>}  path="/shop/:id" />
-      <Route element={<Layout><ConflictsScreen /></Layout>}    path="/conflicts" />
       <Route element={<Layout><BugReportsScreen /></Layout>}  path="/bug-reports" />
     </Routes>
   )

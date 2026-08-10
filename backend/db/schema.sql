@@ -1,6 +1,18 @@
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS events (
+    id          TEXT NOT NULL UNIQUE,
+    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id   TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    entity_id   TEXT NOT NULL,
+    payload     TEXT NOT NULL DEFAULT '{}',
+    timestamp   TEXT NOT NULL,
+    lamport     INTEGER NOT NULL,
+    received_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS shops (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -11,15 +23,16 @@ CREATE TABLE IF NOT EXISTS shops (
 );
 
 CREATE TABLE IF NOT EXISTS items (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    unit        TEXT,
-    description TEXT,
-    notes       TEXT,
-    version     INTEGER NOT NULL DEFAULT 1,
-    created_at  DATETIME NOT NULL,
-    updated_at  DATETIME NOT NULL,
-    deleted_at  DATETIME
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    unit            TEXT,
+    default_quantity REAL,
+    description     TEXT,
+    notes           TEXT,
+    version         INTEGER NOT NULL DEFAULT 1,
+    created_at      DATETIME NOT NULL,
+    updated_at      DATETIME NOT NULL,
+    deleted_at      DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS item_shops (

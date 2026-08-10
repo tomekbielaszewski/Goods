@@ -1,8 +1,9 @@
 import { type FC, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { db } from '../db/schema'
+import { apiClient } from '../api/client'
 import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
+import { useLiveData } from '../components/useLiveData'
 
 const PALETTE = [
   '#ef4444', '#6e2600', '#eab308', '#22c55e',
@@ -18,38 +19,30 @@ const SettingsScreen: FC = () => {
   const [editId, setEditId] = useState<string | null>(null)
 
   const [bugText, setBugText] = useState('')
-  const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   const submitBug = async () => {
     if (!bugText.trim()) return
     setBugStatus('sending')
-    try {
-      const res = await fetch('/api/report-bug', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: bugText.trim() }),
-      })
-      if (!res.ok) throw new Error('server error')
-      setBugText('')
-      setBugStatus('sent')
-      setTimeout(() => setBugStatus('idle'), 3000)
-    } catch {
-      setBugStatus('error')
-    }
+    await apiClient.reportBug(bugText.trim())
+    setBugText('')
+    setBugStatus('sent')
+    setTimeout(() => setBugStatus('idle'), 3000)
   }
 
-  const load = () => db.shops.filter(s => !s.deletedAt).toArray().then(setShops)
+  const load = () => apiClient.getShops().then(s => setShops(s.filter(s => !s.deletedAt)))
   useEffect(() => { void load() }, [])
+  useLiveData(load)
 
   const save = async () => {
     if (!name.trim()) return
-    const now = new Date().toISOString()
     if (editId) {
       const existing = shops.find(s => s.id === editId)
       if (!existing) return
-      await db.shops.put({ ...existing, name: name.trim(), color, version: existing.version + 1, updatedAt: now })
+      await apiClient.renameShop(editId, name.trim())
+      await apiClient.changeShopColor(editId, color)
     } else {
-      await db.shops.add({ id: crypto.randomUUID(), name: name.trim(), color, version: 1, updatedAt: now })
+      await apiClient.createShop({ name: name.trim(), color })
     }
     setName(''); setColor(PALETTE[0]!); setEditId(null)
     void load()
@@ -60,7 +53,7 @@ const SettingsScreen: FC = () => {
   }
 
   const deleteShop = async (id: string) => {
-    await db.shops.update(id, { deletedAt: new Date().toISOString() })
+    await apiClient.softDeleteShop(id)
     void load()
   }
 
@@ -162,7 +155,6 @@ const SettingsScreen: FC = () => {
               {bugStatus === 'sending' ? 'Sending…' : 'Submit'}
             </button>
             {bugStatus === 'sent' && <span className="text-xs text-green-400">Sent!</span>}
-            {bugStatus === 'error' && <span className="text-xs text-red-400">Failed to send.</span>}
           </div>
           <button
             onClick={() => navigate('/bug-reports')}

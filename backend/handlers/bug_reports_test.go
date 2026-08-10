@@ -1,144 +1,126 @@
 package handlers_test
 
+// Bug reports are now event-driven: a BugReported event is published through
+// POST /api/events and projected onto the bug_reports table. The report id is
+// the event's entityId. There is no dedicated report-bug endpoint anymore.
+
 import (
-	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
 	"groceries/handlers"
+	"groceries/models"
 )
 
-func newTestServerWithBugReports(t *testing.T) (*httptest.Server, *sql.DB) {
+type bugReportJSON struct {
+	ID         string `json:"id"`
+	Text       string `json:"text"`
+	CreatedAt  string `json:"created_at"`
+	ResolvedAt *string `json:"resolved_at"`
+}
+
+func getBugReports(t *testing.T, srv *httptest.Server) []bugReportJSON {
 	t.Helper()
-	database := newTestDB(t)
-	r := chi.NewRouter()
-	r.Post("/api/report-bug", handlers.ReportBug(database))
-	r.Get("/api/bug-reports", handlers.ListBugReports(database))
-	r.Post("/api/bug-reports/{id}/resolve", handlers.ResolveBugReport(database))
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv, database
+	resp, err := http.Get(srv.URL + "/api/bug-reports")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out []bugReportJSON
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	return out
+}
+
+func publishBugReport(t *testing.T, srv *httptest.Server, id, text string) {
+	t.Helper()
+	e := makeEvent(t, models.EventBugReported, id, map[string]any{"text": text})
+	doPublish(t, srv, e)
+}
+
+func resolveBugReport(t *testing.T, srv *httptest.Server, id string) int {
+	t.Helper()
+	resp, err := http.Post(fmt.Sprintf("%s/api/bug-reports/%s/resolve", srv.URL, id), "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	return resp.StatusCode
 }
 
 func TestListBugReports_Empty(t *testing.T) {
-	srv, _ := newTestServerWithBugReports(t)
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	resp, err := http.Get(srv.URL + "/api/bug-reports")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var result []map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	require.Len(t, result, 0)
+	require.Empty(t, getBugReports(t, srv))
 }
 
-func TestListBugReports_ReturnsSaved(t *testing.T) {
-	srv, _ := newTestServerWithBugReports(t)
+func TestListBugReports_FromEvents(t *testing.T) {
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	// Submit two bugs
-	postBug(t, srv, "crash on startup")
-	postBug(t, srv, "wrong total price")
+	publishBugReport(t, srv, "bug-1", "crash on startup")
 
-	resp, err := http.Get(srv.URL + "/api/bug-reports")
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	reports := getBugReports(t, srv)
+	require.Equal(t, 1, len(reports))
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	r := reports[0]
+	require.Equal(t, "bug-1", r.ID, "bug report id must be the BugReported event's entityId")
+	require.Equal(t, "crash on startup", r.Text)
+	require.NotEmpty(t, r.CreatedAt)
+	require.Nil(t, r.ResolvedAt, "unresolved report must have resolved_at: null")
+}
 
-	var result []map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	require.Len(t, result, 2)
+func TestListBugReports_TwoEvents(t *testing.T) {
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	texts := []string{result[0]["text"].(string), result[1]["text"].(string)}
+	publishBugReport(t, srv, "bug-1", "crash on startup")
+	publishBugReport(t, srv, "bug-2", "wrong total price")
+
+	reports := getBugReports(t, srv)
+	require.Equal(t, 2, len(reports))
+
+	texts := []string{reports[0].Text, reports[1].Text}
 	require.Contains(t, texts, "crash on startup")
 	require.Contains(t, texts, "wrong total price")
 }
 
-func TestListBugReports_HasRequiredFields(t *testing.T) {
-	srv, _ := newTestServerWithBugReports(t)
-
-	postBug(t, srv, "some bug")
-
-	resp, err := http.Get(srv.URL + "/api/bug-reports")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	var result []map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	require.Len(t, result, 1)
-
-	entry := result[0]
-	require.NotEmpty(t, entry["id"])
-	require.Equal(t, "some bug", entry["text"])
-	require.NotEmpty(t, entry["created_at"])
-	_, hasResolvedAt := entry["resolved_at"]
-	require.True(t, hasResolvedAt, "resolved_at field must be present")
-}
-
 func TestResolveBugReport_Success(t *testing.T) {
-	srv, db := newTestServerWithBugReports(t)
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	id := postBug(t, srv, "button not working")
+	publishBugReport(t, srv, "bug-1", "crash on startup")
 
-	resp, err := http.Post(fmt.Sprintf("%s/api/bug-reports/%s/resolve", srv.URL, id), "application/json", nil)
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resolveBugReport(t, srv, "bug-1"))
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	// Verify resolved_at is set in DB
-	var resolvedAt sql.NullString
-	require.NoError(t, db.QueryRow(`SELECT resolved_at FROM bug_reports WHERE id = ?`, id).Scan(&resolvedAt))
-	require.True(t, resolvedAt.Valid, "resolved_at should be set after resolving")
-	require.NotEmpty(t, resolvedAt.String)
+	reports := getBugReports(t, srv)
+	require.Equal(t, 1, len(reports))
+	require.NotNil(t, reports[0].ResolvedAt, "resolved_at must be non-null after resolving")
+	require.NotEmpty(t, *reports[0].ResolvedAt)
 }
 
 func TestResolveBugReport_NotFound(t *testing.T) {
-	srv, _ := newTestServerWithBugReports(t)
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	resp, err := http.Post(srv.URL+"/api/bug-reports/nonexistent-id/resolve", "application/json", nil)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, resolveBugReport(t, srv, "nonexistent-id"))
 }
 
-func TestResolveBugReport_AlreadyResolved(t *testing.T) {
-	srv, _ := newTestServerWithBugReports(t)
+func TestResolveBugReport_Twice(t *testing.T) {
+	db := newTestDB(t)
+	hub := handlers.NewHub()
+	srv := newTestServer(t, db, hub)
 
-	id := postBug(t, srv, "some bug")
+	publishBugReport(t, srv, "bug-1", "crash on startup")
 
-	// Resolve once
-	resp1, err := http.Post(fmt.Sprintf("%s/api/bug-reports/%s/resolve", srv.URL, id), "application/json", nil)
-	require.NoError(t, err)
-	resp1.Body.Close()
-	require.Equal(t, http.StatusOK, resp1.StatusCode)
-
-	// Resolve again — should still succeed (idempotent)
-	resp2, err := http.Post(fmt.Sprintf("%s/api/bug-reports/%s/resolve", srv.URL, id), "application/json", nil)
-	require.NoError(t, err)
-	resp2.Body.Close()
-	require.Equal(t, http.StatusOK, resp2.StatusCode)
-}
-
-// postBug is a helper that submits a bug report and returns the new bug ID.
-func postBug(t *testing.T, srv *httptest.Server, text string) string {
-	t.Helper()
-	body, _ := json.Marshal(map[string]string{"text": text})
-	resp, err := http.Post(srv.URL+"/api/report-bug", "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var result map[string]string
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-	return result["id"]
+	require.Equal(t, http.StatusOK, resolveBugReport(t, srv, "bug-1"))
+	require.Equal(t, http.StatusOK, resolveBugReport(t, srv, "bug-1"))
 }
