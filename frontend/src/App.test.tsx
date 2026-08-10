@@ -245,3 +245,51 @@ describe('App — offline-first boot from localStorage', () => {
     expect(streamUrls[0]).toContain('since=24')
   })
 })
+
+describe('App — broken stream (dev-proxy limitation)', () => {
+  it('boots without unhandled rejection and falls back to polling when the stream route is broken', async () => {
+    const rejections: unknown[] = []
+    const handler = (err: unknown) => rejections.push(err)
+    process.on('unhandledRejection', handler)
+    try {
+      const fetchMock = mockFetch([
+        {
+          method: 'GET',
+          url: '/api/events?since=0',
+          response: jsonResponse({
+            events: [{
+              id: 'evt-1',
+              clientId: 'remote',
+              lamport: 1,
+              timestamp: '2026-08-09T10:00:00.000Z',
+              entityId: 'list-1',
+              type: 'ListCreated',
+              payload: { name: 'Restored List' },
+              seq: 1,
+            }],
+            lastSeq: 1,
+          }),
+        },
+        { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 }) },
+        { method: 'GET', url: '/api/events?since=1', response: jsonResponse({ events: [], lastSeq: 1 }) },
+        // deliberately NO /api/events/stream route: the stream fetch throws,
+        // like the dev proxy after it has already relayed one stream.
+      ])
+
+      renderApp()
+
+      // the initial pull still boots the app
+      await screen.findByText('Restored List')
+
+      // no unhandled rejection: the transport reports the stream failure and
+      // the client falls back to polling (a poll GET fires within the interval)
+      await vi.waitFor(() => {
+        const urls = fetchMock.mock.calls.map(([url]) => String(url))
+        expect(urls.some(u => u.includes('/api/events?since='))).toBe(true)
+      }, { timeout: 7000 })
+      expect(rejections).toEqual([])
+    } finally {
+      process.removeListener('unhandledRejection', handler)
+    }
+  })
+})

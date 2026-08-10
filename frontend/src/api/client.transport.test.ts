@@ -86,6 +86,49 @@ function getUrls(fetchMock: Mock): string[] {
   return fetchMock.mock.calls.map(([url]) => String(url))
 }
 
+// ── Resilient-stream helpers (polling fallback + reconnect) ──────────────────
+// Pinned fallback schedule (dev-proxy resilience):
+// - poll interval: 3000ms (repeated GET /api/events?since=<lastSeq>)
+// - SSE retry backoff: 2000ms doubling, capped at 30000ms (failure-driven)
+// Tests below advance fake timers by these amounts to pin the behavior.
+
+const POLL_INTERVAL = 3000
+const RETRY_BASE_DELAY = 2000
+
+// A stream that opens but can later be failed with controller.error().
+function errorStream(): { response: Response; fail: (err: unknown) => void } {
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+  return {
+    response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+    fail: (err) => controller.error(err),
+  }
+}
+
+// A stream that closes immediately (clean end, no error) — mimics a proxy that
+// accepts the stream fetch but never relays anything.
+function closedStreamResponse(): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({ start(c) { c.close() } }),
+    { headers: { 'content-type': 'text/event-stream' } },
+  )
+}
+
+// Poll GETs are /api/events?since=N; stream GETs are /api/events/stream?since=N.
+function pollUrls(fetchMock: Mock): string[] {
+  return getUrls(fetchMock).filter(u => u.includes('/api/events?since='))
+}
+
+// Records process-level unhandled rejections so tests can assert that a failing
+// SSE stream is reported through a callback instead of becoming an
+// "Uncaught (in promise)" error.
+function captureRejections(): { rejections: unknown[]; stop: () => void } {
+  const rejections: unknown[] = []
+  const handler = (err: unknown) => rejections.push(err)
+  process.on('unhandledRejection', handler)
+  return { rejections, stop: () => process.removeListener('unhandledRejection', handler) }
+}
+
 // ── Offline-first snapshot contract ─────────────────────────────────────────────
 // The client persists its state to localStorage as a single JSON blob under
 // SNAPSHOT_KEY so a page refresh restores everything without re-downloading the
@@ -463,6 +506,222 @@ describe('connectStream', () => {
     await apiClient.createShop({ name: 'Local', color: '#000000' })
     expect(received.at(-1)!.lamport).toBeGreaterThan(50)
     unsubscribe()
+  })
+})
+
+// ── connectStream — resilient fallback (polling + reconnect) ──────────────────
+// Dev-proxy limitation: the Vite proxy can relay only ONE SSE stream; the next
+// stream attempt fails (and the failure is currently an unhandled rejection).
+// These tests pin the resilient behavior: no unhandled rejection, polling
+// fallback, capped-backoff stream retries, and full teardown on unsubscribe
+// and reset().
+
+describe('connectStream — resilient fallback (polling + reconnect)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('a stream that errors never rejects; the client falls back to polling', async () => {
+    const { response, fail } = errorStream()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [], lastSeq: 0 }) },
+    ])
+    const { rejections, stop } = captureRejections()
+    try {
+      const unsubscribe = apiClient.connectStream()
+      await vi.advanceTimersByTimeAsync(1)
+      fail(new Error('proxy dropped the stream'))
+      await vi.advanceTimersByTimeAsync(1)
+
+      // the transport reports the failure instead of rethrowing it
+      expect(rejections).toEqual([])
+
+      // observable proxy for "no throw": a poll GET fires within the interval
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL)
+      expect(pollUrls(fetchMock)).toHaveLength(1)
+      expect(pollUrls(fetchMock)[0]).toContain('since=0')
+      unsubscribe()
+    } finally {
+      stop()
+    }
+  })
+
+  it('a stream that ends immediately falls back to polling: polled events apply and advance the poll cursor', async () => {
+    const listEvt = remoteEvent('ListCreated', 'list-polled', { name: 'Polled List' }, 1, 4)
+    let pollCount = 0
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events/stream')) return closedStreamResponse()
+      if (u.includes('/api/events?since=')) {
+        pollCount++
+        const since = Number(u.split('since=')[1])
+        if (since === 0) return jsonResponse({ events: [listEvt], lastSeq: 1 })
+        return jsonResponse({ events: [], lastSeq: 1 })
+      }
+      throw new Error(`Unexpected fetch: ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const received: AppEvent[] = []
+    apiClient.subscribe(e => received.push(e))
+
+    const unsubscribe = apiClient.connectStream()
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL)
+
+    // first poll: since=0, and the polled event is applied through the same
+    // applyRemoteEvent path (state + listeners + lastSeq)
+    expect(pollCount).toBe(1)
+    expect(pollUrls(fetchMock)[0]).toContain('since=0')
+    expect(received.map(e => e.type)).toEqual(['ListCreated'])
+    expect(received[0]!.entityId).toBe('list-polled')
+    const lists = await apiClient.getLists()
+    expect(lists).toHaveLength(1)
+    expect(lists[0]!.name).toBe('Polled List')
+
+    // second poll: cursor advanced to since=1
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL)
+    expect(pollCount).toBe(2)
+    expect(pollUrls(fetchMock)[1]).toContain('since=1')
+    expect(received).toHaveLength(1) // the polled event is not re-applied
+    unsubscribe()
+  })
+
+  it('retries the stream with capped exponential backoff while polling; a successful retry stops polling', async () => {
+    // attempts: t=0 fail → t=2000 fail → t=6000 fail → t=14000 fail →
+    // next delay 16000 capped to 30000 → t=44000 SUCCEEDS (polls at 3000n).
+    let streamAttempts = 0
+    let feed: (ev: ServerEvent) => void = () => {}
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events/stream')) {
+        streamAttempts++
+        if (streamAttempts <= 4) throw new Error('stream down')
+        const live = sseResponse()
+        feed = live.feed
+        return live.response
+      }
+      if (u.includes('/api/events?since=')) return jsonResponse({ events: [], lastSeq: 0 })
+      throw new Error(`Unexpected fetch: ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const unsubscribe = apiClient.connectStream()
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL) // t=3000
+    expect(pollUrls(fetchMock)).toHaveLength(1)
+    expect(pollUrls(fetchMock)[0]).toContain('since=0')
+    expect(streamAttempts).toBe(2) // initial + retry at t=2000
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL) // t=6000
+    expect(pollUrls(fetchMock)).toHaveLength(2)
+    expect(streamAttempts).toBe(3) // retry at t=6000 failed too
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL * 2) // t=12000
+    expect(pollUrls(fetchMock)).toHaveLength(4)
+    expect(streamAttempts).toBe(3)
+
+    await vi.advanceTimersByTimeAsync(2000) // t=14000
+    expect(streamAttempts).toBe(4) // retry at t=14000 failed
+
+    await vi.advanceTimersByTimeAsync(16000) // t=30000
+    expect(streamAttempts).toBe(4) // backoff capped at 30000: next retry at t=44000, NOT t=30000
+    expect(pollUrls(fetchMock)).toHaveLength(10) // polls at 3000..30000
+
+    await vi.advanceTimersByTimeAsync(14000) // t=44000
+    expect(streamAttempts).toBe(5) // capped retry succeeded
+    expect(pollUrls(fetchMock)).toHaveLength(14) // polling stopped at t=44000
+
+    // the reconnected stream applies events again
+    feed(remoteEvent('ListCreated', 'list-reconnected', { name: 'Reconnected' }, 5, 9))
+    await vi.advanceTimersByTimeAsync(1)
+    const lists = await apiClient.getLists()
+    expect(lists).toHaveLength(1)
+    expect(lists[0]!.name).toBe('Reconnected')
+
+    // still no polling while the stream is open
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL * 2) // t=50000
+    expect(pollUrls(fetchMock)).toHaveLength(14)
+    unsubscribe()
+  })
+
+  it('unsubscribe stops polling and retrying', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events/stream')) throw new Error('stream down')
+      if (u.includes('/api/events?since=')) return jsonResponse({ events: [], lastSeq: 0 })
+      throw new Error(`Unexpected fetch: ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const unsubscribe = apiClient.connectStream()
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL * 2) // t=6000: polls at 3000,6000; retries at 2000,6000
+    expect(pollUrls(fetchMock)).toHaveLength(2) // polling is engaged
+
+    const callsBefore = fetchMock.mock.calls.length
+    unsubscribe()
+    await vi.advanceTimersByTimeAsync(120000) // way past poll interval, retry cap, and backoff
+
+    expect(fetchMock.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('reset() tears down the active poller and retry schedule', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events/stream')) throw new Error('stream down')
+      if (u.includes('/api/events?since=')) return jsonResponse({ events: [], lastSeq: 0 })
+      throw new Error(`Unexpected fetch: ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    apiClient.connectStream()
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL) // t=3000: polling is engaged
+    expect(pollUrls(fetchMock)).toHaveLength(1)
+
+    const callsBefore = fetchMock.mock.calls.length
+    apiClient.reset()
+    await vi.advanceTimersByTimeAsync(120000)
+
+    expect(fetchMock.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('a mid-stream error after events flowed triggers polling from the advanced position', async () => {
+    const { response, feed, error } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+      { method: 'GET', url: '/api/events?since=7', response: jsonResponse({ events: [], lastSeq: 7 }) },
+    ])
+    const received: AppEvent[] = []
+    apiClient.subscribe(e => received.push(e))
+
+    const unsubscribe = apiClient.connectStream()
+    await vi.advanceTimersByTimeAsync(1)
+    feed(remoteEvent('ListCreated', 'list-live-err', { name: 'Live Then Broken' }, 7, 12))
+    await vi.advanceTimersByTimeAsync(1)
+    expect(received).toHaveLength(1) // event applied while live
+
+    error(new Error('proxy dropped the stream'))
+    await vi.advanceTimersByTimeAsync(1)
+
+    // polling resumes from the lastSeq the stream reached
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL)
+    expect(pollUrls(fetchMock)).toHaveLength(1)
+    expect(pollUrls(fetchMock)[0]).toContain('since=7')
+    unsubscribe()
+  })
+
+  it('a manual unsubscribe abort does not trigger polling', async () => {
+    const { response } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+    ])
+
+    const unsubscribe = apiClient.connectStream()
+    await vi.advanceTimersByTimeAsync(1)
+    unsubscribe()
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL * 4)
+
+    expect(pollUrls(fetchMock)).toHaveLength(0) // abort must not start polling
+    const streamCalls = getUrls(fetchMock).filter(u => u.includes('/api/events/stream'))
+    expect(streamCalls).toHaveLength(1) // no retry after abort either
   })
 })
 
