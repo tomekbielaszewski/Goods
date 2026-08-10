@@ -50,13 +50,18 @@ function remoteEvent(
   } as ServerEvent
 }
 
-function sseResponse(): { response: Response; feed: (ev: ServerEvent) => void } {
+function sseResponse(): {
+  response: Response
+  feed: (ev: ServerEvent) => void
+  error: (err: unknown) => void
+} {
   let controller!: ReadableStreamDefaultController<Uint8Array>
   const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
   const encoder = new TextEncoder()
   return {
     response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
     feed: (ev: ServerEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n`)),
+    error: (err) => controller.error(err),
   }
 }
 
