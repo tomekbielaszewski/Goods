@@ -93,6 +93,8 @@ class ApiClient {
     this.lastSeq = 0
     this.listeners.clear()
     this.syncScheduled = false
+    this.streamUnsub?.()
+    this.streamUnsub = null
     localStorage.removeItem(SNAPSHOT_KEY)
   }
 
@@ -456,12 +458,71 @@ class ApiClient {
 
   connectStream(): () => void {
     if (this.streamUnsub) this.streamUnsub()
-    const unsub = subscribeEventStream(this.lastSeq, e => this.applyRemoteEvent(e))
-    this.streamUnsub = unsub
-    return () => {
-      unsub()
-      if (this.streamUnsub === unsub) this.streamUnsub = null
+
+    let stopped = false
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let graceTimer: ReturnType<typeof setTimeout> | null = null
+    let failures = 0
+    let abortStream: (() => void) | null = null
+
+    const clearTimers = () => {
+      if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null }
+      if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null }
+      if (graceTimer !== null) { clearTimeout(graceTimer); graceTimer = null }
     }
+
+    const teardown = () => {
+      if (stopped) return
+      stopped = true
+      clearTimers()
+      abortStream?.()
+      abortStream = null
+    }
+    this.streamUnsub = teardown
+
+    const open = () => {
+      if (stopped) return
+      abortStream = subscribeEventStream(
+        this.lastSeq,
+        e => { if (!stopped) this.applyRemoteEvent(e) },
+        () => {
+          if (stopped) return
+          if (graceTimer !== null) { clearTimeout(graceTimer); graceTimer = null }
+          if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null }
+          if (pollTimer === null) {
+            pollTimer = setInterval(() => {
+              void fetchRemoteEvents(this.lastSeq)
+                .then(({ events, lastSeq }) => {
+                  for (const e of events) this.applyRemoteEvent(e)
+                  this.lastSeq = Math.max(this.lastSeq, lastSeq)
+                })
+                .catch(() => {})
+            }, 3000)
+          }
+          failures += 1
+          const delay = failures >= 4 ? 30000 : 2000 * 2 ** (failures - 1)
+          retryTimer = setTimeout(() => {
+            retryTimer = null
+            open()
+          }, delay)
+        },
+        () => {
+          if (stopped) return
+          // only treat the open as genuine once it survives the grace window:
+          // a connection that dies immediately must not stop the poller
+          graceTimer = setTimeout(() => {
+            graceTimer = null
+            if (stopped) return
+            failures = 0
+            clearTimers()
+          }, 250)
+        },
+      )
+    }
+
+    open()
+    return teardown
   }
 
   private applyRemoteEvent(e: ServerEvent) {
