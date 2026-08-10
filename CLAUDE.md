@@ -19,13 +19,13 @@
 
 For every new feature, use the two specialist subagents in sequence:
 
-1. **test-writer** agent — explores the codebase, writes ONLY failing tests, commits them to `test/<feature-name>` branch. Never writes implementation code.
+1. **test-writer** agent — explores the codebase, writes ONLY failing tests, commits them on the current branch. Never writes implementation code.
 2. **implementer** agent — runs failing tests, writes minimal implementation code to pass them, iterates until `npm test`, `npm run typecheck`, and `go test ./...` all pass. Never edits test files.
 
 **Invoke via:**
 ```
 Agent(subagent_type="test-writer", prompt="Write failing tests for: <feature description>")
-Agent(subagent_type="implementer", prompt="Make the failing tests on branch test/<feature-name> pass")
+Agent(subagent_type="implementer", prompt="Make the failing tests pass")
 ```
 
 **Rules:**
@@ -33,3 +33,10 @@ Agent(subagent_type="implementer", prompt="Make the failing tests on branch test
 - The implementer must not modify any test files
 - Both agents must run the full test suite and report counts before declaring success
 - A feature is complete only when all frontend + backend tests pass with no typecheck errors
+
+## User Notifications (ntfy)
+- Whenever input or a decision from the user is needed during a session, notify them via ntfy before waiting or proceeding:
+  ```
+  curl -H "Title: OpenCode Alert" -H "Tags: laptop,gear" -d "<short message describing the question/decision>" ntfy.sh/tbw-opencode
+  ```
+- The user checks these notifications; a session may continue waiting for a reply.

@@ -1,11 +1,11 @@
 import { type FC, useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { db } from '../db/schema'
-import { upsertItem, upsertListItem, getItemWithDetails } from '../db/queries'
+import { apiClient, type ItemPatch } from '../api/client'
 import type { Shop, Tag, ItemWithDetails, SessionItem } from '../types'
 import ShopDot from '../components/ShopDot'
 import TagBadge from '../components/TagBadge'
 import { normalizeTag } from '../utils/tagUtils'
+import { useLiveData } from '../components/useLiveData'
 
 const COMMON_UNITS = ['kg', 'g', 'l', 'ml', 'pcs', 'pack', 'bottle', 'bag', 'box']
 
@@ -33,12 +33,12 @@ const ItemDetailScreen: FC = () => {
   const [history, setHistory]       = useState<SessionItem[]>([])
   const [sessionShopMap, setSessionShopMap] = useState<Map<string, string>>(new Map())
 
-  useEffect(() => {
-    db.shops.toArray().then(setShops)
-    db.tags.toArray().then(setTags)
+  const load = () => {
+    apiClient.getShops().then(setShops)
+    apiClient.getTags().then(setTags)
 
     if (!isNew && id) {
-      getItemWithDetails(id).then(async enriched => {
+      apiClient.getItemWithDetails(id).then(async enriched => {
         if (!enriched) return
         setItem(enriched)
         setName(enriched.name)
@@ -49,12 +49,12 @@ const ItemDetailScreen: FC = () => {
         setSelectedShops(enriched.shops.map(s => s.id))
         setSelectedTags(enriched.tags.map(t => t.id))
 
-        const hist = await db.sessionItems.where('itemId').equals(id).sortBy('at')
+        const hist = await apiClient.getSessionItemsByItemId(id)
         const recent = [...hist].reverse().slice(0, 20)
         setHistory(recent)
 
         const sessionIds = [...new Set(recent.map(h => h.sessionId))]
-        const sessions = await db.shoppingSessions.bulkGet(sessionIds)
+        const sessions = await apiClient.getShoppingSessionsByIds(sessionIds)
         const map = new Map<string, string>()
         for (const s of sessions) {
           if (s) map.set(s.id, s.shopId)
@@ -62,7 +62,10 @@ const ItemDetailScreen: FC = () => {
         setSessionShopMap(map)
       })
     }
-  }, [id, isNew])
+  }
+
+  useEffect(load, [id, isNew])
+  useLiveData(load)
 
   const changeUnit = (newUnit: string) => {
     setUnit(newUnit)
@@ -71,52 +74,58 @@ const ItemDetailScreen: FC = () => {
 
   const save = async () => {
     if (!name.trim()) return
-    const now = new Date().toISOString()
-    const itemId = isNew ? crypto.randomUUID() : id!
     const parsedQty = Math.max(1, Number(defaultQuantity) || 1)
     const newUnit = unit || undefined
     const oldUnit = item?.unit
 
-    await upsertItem(
-      {
-        id: itemId,
-        name: name.trim(),
-        unit: newUnit,
-        defaultQuantity: parsedQty,
-        description: description || undefined,
-        notes: notes || undefined,
-        version: item ? item.version + 1 : 1,
-        createdAt: item?.createdAt ?? now,
-        updatedAt: now,
-      },
-      selectedShops,
-      selectedTags,
-    )
+    let itemId: string
+    if (isNew) {
+      const created = await apiClient.createItem(
+        {
+          name: name.trim(),
+          unit: newUnit,
+          defaultQuantity: parsedQty,
+          description: description || undefined,
+          notes: notes || undefined,
+        },
+        selectedShops,
+        selectedTags,
+      )
+      itemId = created.id
+    } else {
+      const patch: ItemPatch = {}
+      if (item && item.name !== name.trim()) patch.name = name.trim()
+      if (item && item.unit !== newUnit) patch.unit = newUnit
+      if (item && item.defaultQuantity !== parsedQty) patch.defaultQuantity = parsedQty
+      if (item && (item.description ?? undefined) !== (description || undefined)) patch.description = description || undefined
+      if (item && (item.notes ?? undefined) !== (notes || undefined)) patch.notes = notes || undefined
+      if (Object.keys(patch).length > 0) {
+        await apiClient.updateItem(id!, patch)
+      }
+      await apiClient.saveItemShopsAndTags(id!, selectedShops, selectedTags)
+      itemId = id!
+    }
 
     // Cascade unit change to list items that still carry the old default unit.
     // List items with a user-overridden unit (different from the old default) are left untouched.
     if (!isNew && oldUnit !== newUnit) {
-      const affected = await db.listItems.where('itemId').equals(itemId).toArray()
+      const affected = await apiClient.getListItemsByItemId(itemId)
       await Promise.all(
         affected
           .filter(li => li.unit === oldUnit)
-          .map(li => upsertListItem({ ...li, unit: newUnit, updatedAt: now, version: li.version + 1 }))
+          .map(li => apiClient.changeListItemQuantity(li.id, li.quantity, newUnit))
       )
     }
 
     // If coming from list add flow, add to that list
     const listId = searchParams.get('listId')
     if (listId && isNew) {
-      await db.listItems.add({
-        id: crypto.randomUUID(),
+      await apiClient.addListItem({
         listId,
         itemId,
         state: 'active',
         quantity: parsedQty,
         unit: unit || undefined,
-        version: 1,
-        addedAt: now,
-        updatedAt: now,
       })
       navigate(`/list/${listId}`)
       return
@@ -127,7 +136,7 @@ const ItemDetailScreen: FC = () => {
 
   const deleteItem = async () => {
     if (!id || isNew) return
-    await db.items.update(id, { deletedAt: new Date().toISOString() })
+    await apiClient.softDeleteItem(id)
     navigate(-1)
   }
 
@@ -139,9 +148,9 @@ const ItemDetailScreen: FC = () => {
     if (existing) {
       tagId = existing.id
     } else {
-      tagId = crypto.randomUUID()
-      await db.tags.add({ id: tagId, name: normalized })
-      setTags(prev => [...prev, { id: tagId, name: normalized }])
+      const created = await apiClient.createTag(normalized)
+      tagId = created.id
+      setTags(prev => [...prev, created])
     }
     setSelectedTags(prev => prev.includes(tagId) ? prev : [...prev, tagId])
     setNewTag('')
@@ -235,8 +244,7 @@ const ItemDetailScreen: FC = () => {
                   className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'border-transparent text-white' : 'border-border text-gray-400 hover:border-gray-500'}`}
                   style={selected ? { backgroundColor: shop.color } : undefined}
                 >
-                  <ShopDot color={shop.color} />
-                  {shop.name}
+                  <ShopDot color={shop.color} title={shop.name} />
                 </button>
               )
             })}
