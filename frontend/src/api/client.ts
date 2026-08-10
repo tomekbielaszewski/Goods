@@ -62,7 +62,7 @@ class ApiClient {
 
   private events: AppEvent[] = []
   private outbox: AppEvent[] = []
-  private clientId = crypto.randomUUID()
+  private clientId: string = crypto.randomUUID()
   private lamport = 0
   private lastTs = 0
   private lastSeq = 0
