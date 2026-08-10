@@ -36,18 +36,24 @@ export async function publishPendingEvents(
 export function subscribeEventStream(
   sinceSeq: number,
   onEvent: (e: ServerEvent) => void,
+  onError: (err: unknown) => void = () => {},
+  onOpen: () => void = () => {},
 ): () => void {
   const controller = new AbortController()
   void (async () => {
     try {
       const res = await fetch(`/api/events/stream?since=${sinceSeq}`, { signal: controller.signal })
       if (!res.ok) throw new Error(`Failed to open event stream (${res.status})`)
+      onOpen()
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
       for (;;) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          onError(new Error('event stream closed'))
+          return
+        }
         buffer += decoder.decode(value, { stream: true })
         let nl: number
         while ((nl = buffer.indexOf('\n')) !== -1) {
@@ -60,7 +66,7 @@ export function subscribeEventStream(
       }
     } catch (err) {
       if (controller.signal.aborted) return
-      throw err
+      onError(err)
     }
   })()
   return () => controller.abort()
