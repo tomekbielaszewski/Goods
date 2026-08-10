@@ -1,6 +1,7 @@
 import { type FC, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
+import { useLiveData } from '../components/useLiveData'
 import type { List } from '../types'
 
 const ListsScreen: FC = () => {
@@ -18,6 +19,7 @@ const ListsScreen: FC = () => {
     })
 
   useEffect(() => { void load() }, [])
+  useLiveData(load)
 
   const createList = async () => {
     if (!newName.trim()) return

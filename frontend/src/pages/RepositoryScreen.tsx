@@ -3,16 +3,20 @@ import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
 import type { ItemWithDetails } from '../types'
 import ItemCard from '../components/ItemCard'
+import { useLiveData } from '../components/useLiveData'
 
 const RepositoryScreen: FC = () => {
   const [items, setItems] = useState<ItemWithDetails[]>([])
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
 
-  useEffect(() => {
+  const load = () => {
     apiClient.getItemsWithDetails(query || undefined)
       .then(all => setItems(all.filter(i => !i.deletedAt).sort((a, b) => a.name.localeCompare(b.name))))
-  }, [query])
+  }
+
+  useEffect(load, [query])
+  useLiveData(load)
 
   const exactMatch = items.some(i => i.name.toLowerCase() === query.toLowerCase())
 
