@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -7,6 +7,7 @@ import ListScreen from './ListScreen'
 import { apiClient } from '../api/client'
 import { useStore } from '../store/useStore'
 import type { Item, List, ListItem, Shop, Tag, ItemShop, ItemTag, ListItemSkippedShop, ShoppingSession, SessionItem } from '../types'
+import type { ServerEvent } from '../api/transport'
 
 const store = apiClient as unknown as {
   shops: Map<string, Shop>
@@ -367,6 +368,108 @@ describe('ListScreen — rename list', () => {
     expect(screen.queryByRole('textbox', { name: /list name/i })).not.toBeInTheDocument()
     const updated = store.lists.get('l1')
     expect(updated?.name).toBe('Test list')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// live updates from remote events (SSE stream)
+// ---------------------------------------------------------------------------
+// A change made in ANOTHER tab arrives here as an event on the SSE stream and
+// is applied to apiClient's maps. The mounted screen must re-read (and thus
+// re-render) WITHOUT any navigation or remount.
+
+describe('ListScreen — live updates from remote events', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const remoteEvent = (
+    type: string,
+    entityId: string,
+    payload: Record<string, unknown>,
+    seq: number,
+    lamport: number,
+  ): ServerEvent => ({
+    id: `evt-${seq}`,
+    clientId: 'remote-client',
+    lamport,
+    timestamp: '2026-08-09T10:00:00.000Z',
+    entityId,
+    type,
+    payload,
+    seq,
+  } as ServerEvent)
+
+  // Mirrors sseResponse from src/api/client.transport.test.ts: an open SSE
+  // response whose events are pushed with feed().
+  const sseResponse = (): { response: Response; feed: (ev: ServerEvent) => void } => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+    const encoder = new TextEncoder()
+    return {
+      response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+      feed: (ev: ServerEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n`)),
+    }
+  }
+
+  // Stubs fetch for the stream route only (screens never fetch on their own)
+  // and opens the client's SSE stream, returning feed() to deliver events.
+  const openStream = (): { unsubscribe: () => void; feed: (ev: ServerEvent) => void } => {
+    const { response, feed } = sseResponse()
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      if (String(url).includes('/api/events/stream')) return response
+      throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${url}`)
+    }))
+    const unsubscribe = apiClient.connectStream()
+    return { unsubscribe, feed }
+  }
+
+  it('re-renders a quantity change that arrives over the event stream', async () => {
+    const list = makeList('l1')
+    const item = makeItem('i1', { name: 'Apples' })
+    const li = makeListItem('li1', 'l1', 'i1', { quantity: 1, unit: '' })
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+
+    renderList('l1')
+
+    // Initial render shows Apples with quantity 1.
+    await screen.findByText('Apples')
+    expect(screen.getByText('1')).toBeInTheDocument()
+
+    // Another tab changes the quantity 1 → 3; the event arrives via the stream.
+    const { unsubscribe, feed } = openStream()
+    feed(remoteEvent('ListItemQuantityChanged', 'li1', { quantity: 3, unit: '' }, 5, 9))
+
+    // The mounted screen must show the NEW quantity WITHOUT navigation.
+    await waitFor(() => {
+      expect(screen.getByText('3')).toBeInTheDocument()
+    })
+    unsubscribe()
+  })
+
+  it('renders a list item added remotely without navigation', async () => {
+    const list = makeList('l1')
+    const item = makeItem('i2', { name: 'Bananas' })
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+
+    renderList('l1')
+
+    // No list items yet: the empty state is shown and there is no item card.
+    await screen.findByText('No items yet. Search below to add some.')
+    expect(screen.queryByRole('button', { name: /remove from list/i })).toBeNull()
+
+    // Another tab adds Bananas to this list; the event arrives via the stream.
+    const { unsubscribe, feed } = openStream()
+    feed(remoteEvent('ListItemAdded', 'li2', { listId: 'l1', itemId: 'i2', state: 'active', quantity: 2, unit: '' }, 6, 10))
+
+    // The mounted screen must render the new item card WITHOUT navigation.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /remove from list/i })).toBeInTheDocument()
+    })
+    unsubscribe()
   })
 })
 
