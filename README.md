@@ -128,3 +128,56 @@ docker run -d \
 A [docker-compose.yml](docker-compose.yml) is included.  
 It pulls the prebuilt image from GHCR, maps port `8080`, and stores the SQLite database in the local `./groceries`
 directory.
+
+---
+
+## Published images and releases
+
+CI publishes the app to GHCR (`ghcr.io/tomekbielaszewski/groceries`) and creates GitHub releases automatically:
+
+| Trigger | Docker tag | GitHub release |
+|---------|------------|----------------|
+| Push to `master` | `dev` — latest development build | — |
+| Tag `vX.Y.Z` (semver) on `master` | `latest` + `X.Y.Z` — stable build | Yes, with prebuilt binaries |
+
+### Development image
+
+Every commit to `master` is built and published as `:dev`. It tracks the newest code, so it may be unstable:
+
+```bash
+docker run -d \
+  --name groceries-dev \
+  -p 8080:8080 \
+  -v groceries-dev-data:/data \
+  ghcr.io/tomekbielaszewski/groceries:dev
+```
+
+Or in compose, override the tag:
+
+```yaml
+services:
+  groceries:
+    image: ghcr.io/tomekbielaszewski/groceries:dev
+```
+
+### Releases
+
+Tagging a commit on `master` with a semver tag starting with `v` publishes the stable release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This builds the `latest` and `v1.0.0`-versioned images, and creates a GitHub release (with auto-generated release notes)
+attached with prebuilt binaries for macOS and Linux (amd64 + arm64) — the frontend is compiled into the single
+executable, no extra files needed:
+
+```
+groceries-darwin-amd64
+groceries-darwin-arm64
+groceries-linux-amd64
+groceries-linux-arm64
+```
+
+Run a binary with the same flags as a local build, e.g. `./groceries-linux-amd64 --db ./groceries.db --port 8080`.
