@@ -1,12 +1,18 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { apiClient } from './client'
 import type { AppEvent } from '../types/event'
+import type { ServerEvent } from './transport'
 import type {
   Shop, Item, Tag, List, ListItem, ShoppingSession, SessionItem,
 } from '../types'
 
 beforeEach(() => {
   apiClient.reset()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -35,6 +41,69 @@ async function capture(fn: () => Promise<unknown>): Promise<AppEvent[]> {
     unsubscribe()
   }
   return events
+}
+
+// ── Remote-replay helpers (mirrors client.transport.test.ts) ──────────────────
+// Build ServerEvents the way the server would deliver them (GET /api/events,
+// SSE feed) so tests can pin replay behavior against the real apiClient.
+
+type Route = {
+  method?: 'GET' | 'POST'
+  url: string
+  response: Response
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+}
+
+function remoteEvent(
+  type: string,
+  entityId: string,
+  payload: Record<string, unknown>,
+  seq: number,
+  lamport: number,
+  timestamp: string = '2026-08-09T10:00:00.000Z',
+): ServerEvent {
+  return {
+    id: `evt-${seq}`,
+    clientId: 'remote-client',
+    lamport,
+    timestamp,
+    entityId,
+    type,
+    payload,
+    seq,
+  } as ServerEvent
+}
+
+function sseResponse(): {
+  response: Response
+  feed: (ev: ServerEvent) => void
+} {
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+  const encoder = new TextEncoder()
+  return {
+    response: new Response(stream, { headers: { 'content-type': 'text/event-stream' } }),
+    feed: (ev: ServerEvent) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n`)),
+  }
+}
+
+function mockFetch(routes: Route[]): Mock {
+  const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const u = String(url)
+    const method = init?.method ?? 'GET'
+    const route = routes.find(r => u.includes(r.url) && (!r.method || r.method === method))
+    if (!route) throw new Error(`Unexpected fetch: ${method} ${u}`)
+    return route.response
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+function tick(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
 }
 
 // ── subscribe / reset / lamport ────────────────────────────────────────────────
@@ -801,9 +870,9 @@ describe('sessions', () => {
     expect(ev.entityId).toBe(session.id)
     expect(ev.payload).toEqual({ itemId: 'i1', quantity: 2, unit: 'l' })
 
-    expect(si.id).toBeDefined()
+    expect(si.id).toBe(ev.id)
     expect(si.action).toBe('bought')
-    expect(si.at).toBe('2024-01-01T10:00:00.000Z')
+    expect(si.at).toBe(ev.timestamp)
     const stored = await apiClient.getSessionItems(session.id)
     expect(stored).toHaveLength(1)
     expect(stored[0]!.id).toBe(si.id)
@@ -835,13 +904,157 @@ describe('sessions', () => {
     const shop = await apiClient.createShop({ name: 'Lidl', color: '#f00' })
     const item = await apiClient.createItem({ name: 'Milk' }, [shop.id], [])
     const session = await apiClient.startShoppingSession('list-1', shop.id)
-    await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-01T10:00:00.000Z' })
-    await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-02T10:00:00.000Z' })
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    try {
+      await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-01T10:00:00.000Z' })
+      await apiClient.recordSessionItem({ sessionId: session.id, itemId: item.id, action: 'bought', at: '2024-01-02T10:00:00.000Z' })
+    } finally {
+      unsubscribe()
+    }
+    expect(events.map(e => e.type)).toEqual(['SessionItemBought', 'SessionItemBought'])
+    const [first, second] = events
+    // stamps are sequential: the second record's event is stamped later
+    expect(new Date(second.timestamp).getTime()).toBeGreaterThan(new Date(first.timestamp).getTime())
 
     const items = await apiClient.getItemsWithDetails()
     expect(items[0]!.frequency).toBe(2)
-    expect(items[0]!.lastBoughtAt).toBe('2024-01-02T10:00:00.000Z')
+    expect(items[0]!.lastBoughtAt).toBe(second.timestamp)
     expect(items[0]!.lastBoughtShopId).toBe(shop.id)
+  })
+})
+
+// ── Session items reconstructed from remote events ─────────────────────────────
+// applyEvent must rebuild SessionItems from SessionItemBought/SessionItemSkipped
+// events so buy/skip history survives a reload and drives frequency stats.
+
+describe('session items reconstructed from remote events', () => {
+  it('loadData replays buy/skip history into sessionItems and enrichment stats', async () => {
+    const events = [
+      remoteEvent('ShopCreated', 'shop-1', { name: 'Lidl', color: '#f00' }, 1, 1),
+      remoteEvent('ItemCreated', 'item-1', { name: 'Milk' }, 2, 2),
+      remoteEvent('ShoppingSessionStarted', 'session-1', { listId: 'list-1', shopId: 'shop-1' }, 3, 3),
+      remoteEvent('SessionItemBought', 'session-1', { itemId: 'item-1', quantity: 2, unit: 'l' }, 4, 4, '2026-08-01T10:00:00.000Z'),
+      remoteEvent('SessionItemSkipped', 'session-1', { itemId: 'item-1' }, 5, 5, '2026-08-02T10:00:00.000Z'),
+      remoteEvent('SessionItemBought', 'session-1', { itemId: 'item-1' }, 6, 6, '2026-08-03T10:00:00.000Z'),
+      remoteEvent('BugReported', 'bug-1', { text: 'crash' }, 7, 7),
+    ]
+    mockFetch([
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events, lastSeq: 7 }) },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 7 }) },
+    ])
+
+    await apiClient.loadData()
+
+    const sessionItems = await apiClient.getSessionItems('session-1')
+    expect(sessionItems).toHaveLength(3)
+    const bought = sessionItems.find(si => si.action === 'bought')!
+    expect(bought).toMatchObject({
+      id: 'evt-4',
+      sessionId: 'session-1',
+      itemId: 'item-1',
+      action: 'bought',
+      at: '2026-08-01T10:00:00.000Z',
+      quantity: 2,
+      unit: 'l',
+    })
+    const skipped = sessionItems.find(si => si.action === 'skipped')!
+    expect(skipped).toMatchObject({
+      id: 'evt-5',
+      sessionId: 'session-1',
+      itemId: 'item-1',
+      action: 'skipped',
+      at: '2026-08-02T10:00:00.000Z',
+    })
+    expect(skipped.quantity).toBeUndefined()
+    expect(skipped.unit).toBeUndefined()
+
+    // BugReported stays a no-op: it must not produce session items
+    expect(await apiClient.getSessionItems('bug-1')).toEqual([])
+
+    // history per item is sorted by at (not by event arrival order)
+    const byItem = await apiClient.getSessionItemsByItemId('item-1')
+    expect(byItem.map(si => si.at)).toEqual([
+      '2026-08-01T10:00:00.000Z',
+      '2026-08-02T10:00:00.000Z',
+      '2026-08-03T10:00:00.000Z',
+    ])
+
+    // stats derive from reconstructed events: skipped does not count toward frequency
+    const items = await apiClient.getItemsWithDetails()
+    expect(items[0]!.frequency).toBe(2)
+    expect(items[0]!.lastBoughtAt).toBe('2026-08-03T10:00:00.000Z')
+    expect(items[0]!.lastBoughtShopId).toBe('shop-1')
+  })
+
+  it('connectStream reconstructs session items from streamed events', async () => {
+    const { response, feed } = sseResponse()
+    mockFetch([
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+    ])
+
+    const unsubscribe = apiClient.connectStream()
+    feed(remoteEvent('ShoppingSessionStarted', 'session-live', { listId: 'list-1', shopId: 'shop-1' }, 1, 1))
+    feed(remoteEvent('SessionItemBought', 'session-live', { itemId: 'item-1', quantity: 1 }, 2, 2, '2026-08-09T10:00:00.000Z'))
+    await tick()
+
+    const sessionItems = await apiClient.getSessionItems('session-live')
+    expect(sessionItems).toHaveLength(1)
+    expect(sessionItems[0]!).toMatchObject({
+      id: 'evt-2',
+      sessionId: 'session-live',
+      itemId: 'item-1',
+      action: 'bought',
+      at: '2026-08-09T10:00:00.000Z',
+      quantity: 1,
+    })
+    unsubscribe()
+  })
+
+  it('is idempotent: applying the same event id twice stores a single session item', async () => {
+    const { response, feed } = sseResponse()
+    mockFetch([
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+    ])
+
+    const unsubscribe = apiClient.connectStream()
+    const evt = remoteEvent('SessionItemBought', 'session-1', { itemId: 'item-1' }, 1, 1)
+    feed(evt)
+    feed(evt)
+    await tick()
+
+    expect(await apiClient.getSessionItems('session-1')).toHaveLength(1)
+    unsubscribe()
+  })
+
+  it('recordSessionItem stores exactly one session item derived from the emitted event', async () => {
+    const session = await apiClient.startShoppingSession('l1', 's1')
+    let si!: SessionItem
+    const events = await capture(async () => {
+      si = await apiClient.recordSessionItem({
+        sessionId: session.id,
+        itemId: 'i1',
+        action: 'bought',
+        at: '2024-01-01T10:00:00.000Z',
+        quantity: 3,
+      })
+    })
+
+    expect(events).toHaveLength(1)
+    const ev = events[0]!
+    expect(ev.type).toBe('SessionItemBought')
+    expect(si.id).toBe(ev.id)
+    expect(si.at).toBe(ev.timestamp)
+    expect(si.sessionId).toBe(session.id)
+    expect(si.itemId).toBe('i1')
+    expect(si.action).toBe('bought')
+    expect(si.quantity).toBe(3)
+    expect(si.unit).toBeUndefined()
+
+    // exactly one entry per call — no double-entry from push + event replay
+    const stored = await apiClient.getSessionItems(session.id)
+    expect(stored).toHaveLength(1)
+    expect(stored[0]!.id).toBe(ev.id)
   })
 })
 
