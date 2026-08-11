@@ -97,3 +97,34 @@ npm run test:coverage
 ```
 
 Tests use `happy-dom` as the browser environment — no real browser or network required.
+
+---
+
+## Docker deployment
+
+The [Dockerfile](Dockerfile) is a multi-stage build: it compiles the frontend with Node 22, cross-compiles the Go backend,
+and copies the result into a minimal Alpine runtime image. The server listens on port `8080` and stores the SQLite
+database at `/data/groceries.db`, so mount a volume at `/data` to keep data across container restarts.
+
+### Build
+
+```bash
+docker build -t groceries .
+```
+
+### Docker run
+
+```bash
+docker run -d \
+  --name groceries \
+  -p 8080:8080 \
+  -v groceries-data:/data \
+  --restart unless-stopped \
+  groceries
+```
+
+### Docker Compose
+
+A [docker-compose.yml](docker-compose.yml) is included.  
+It pulls the prebuilt image from GHCR, maps port `8080`, and stores the SQLite database in the local `./groceries`
+directory.
