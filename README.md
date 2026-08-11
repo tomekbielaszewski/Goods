@@ -140,26 +140,6 @@ CI publishes the app to GHCR (`ghcr.io/tomekbielaszewski/groceries`) and creates
 | Push to `master` | `dev` — latest development build | — |
 | Tag `vX.Y.Z` (semver) on `master` | `latest` + `X.Y.Z` — stable build | Yes, with prebuilt binaries |
 
-### Development image
-
-Every commit to `master` is built and published as `:dev`. It tracks the newest code, so it may be unstable:
-
-```bash
-docker run -d \
-  --name groceries-dev \
-  -p 8080:8080 \
-  -v groceries-dev-data:/data \
-  ghcr.io/tomekbielaszewski/groceries:dev
-```
-
-Or in compose, override the tag:
-
-```yaml
-services:
-  groceries:
-    image: ghcr.io/tomekbielaszewski/groceries:dev
-```
-
 ### Releases
 
 Tagging a commit on `master` with a semver tag starting with `v` publishes the stable release:
