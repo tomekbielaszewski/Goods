@@ -903,3 +903,203 @@ describe('localStorage persistence (offline-first)', () => {
     expect(localStorage.getItem(SNAPSHOT_KEY)).toBeNull()
   })
 })
+
+// ── resync ────────────────────────────────────────────────────────────────────
+// A "Resync" action drops ALL local client state — entity maps/arrays, the
+// in-memory events list, the outbox (pending local mutations are discarded),
+// lamport, lastSeq, and the localStorage snapshot — WITHOUT clearing
+// subscribers. It then re-syncs from the initial event (GET /api/events?since=0,
+// even when a later lastSeq was known) and reconnects the SSE stream from the
+// new lastSeq. A failed pull leaves the client empty and must not throw.
+
+describe('resync', () => {
+  it('drops the local copy: seeded state is discarded and the pull rebuilds state, snapshot, and lastSeq', async () => {
+    const shopEvt = remoteEvent('ShopCreated', 'shop-r', { name: 'Remote Shop', color: '#00ff00' }, 1, 4)
+    const sessionEvt = remoteEvent('ShoppingSessionStarted', 'sess-r', { listId: 'list-r', shopId: 'shop-r' }, 2, 5)
+    const boughtEvt = remoteEvent('SessionItemBought', 'sess-r', { itemId: 'item-r', quantity: 2, unit: 'kg' }, 3, 6)
+    const { response } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 }) },
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [shopEvt, sessionEvt, boughtEvt], lastSeq: 3 }) },
+      { method: 'GET', url: '/api/events/stream?since=3', response },
+    ])
+
+    const seededShop = await apiClient.createShop({ name: 'Seeded Shop', color: '#123456' })
+    await apiClient.createItem({ name: 'Seeded Item' }, [], [])
+    await tick()
+    await tick()
+
+    await apiClient.resync()
+
+    // the seeded entities are gone; only the pulled events remain
+    const shops = await apiClient.getShops()
+    expect(shops).toHaveLength(1)
+    expect(shops[0]!.id).toBe('shop-r')
+    expect(shops[0]!.name).toBe('Remote Shop')
+    expect(shops[0]!.id).not.toBe(seededShop.id)
+    expect(await apiClient.getItemsWithDetails()).toHaveLength(0)
+    const sessionItems = await apiClient.getSessionItems('sess-r')
+    expect(sessionItems).toHaveLength(1)
+    expect(sessionItems[0]!).toMatchObject({ itemId: 'item-r', action: 'bought', quantity: 2, unit: 'kg' })
+
+    // the snapshot reflects the rebuilt state, not the seeded one
+    const snap = JSON.parse(localStorage.getItem(SNAPSHOT_KEY)!) as Snapshot
+    expect(snap.shops).toEqual([expect.objectContaining({ id: 'shop-r', name: 'Remote Shop' })])
+    expect(snap.shops.some(s => s.id === seededShop.id)).toBe(false)
+    expect(snap.items).toEqual([])
+    expect(snap.sessionItems).toEqual([expect.objectContaining({ itemId: 'item-r' })])
+    expect(snap.outbox).toEqual([])
+    expect(snap.lastSeq).toBe(3)
+
+    // lastSeq advanced to the pull's lastSeq: the stream reconnects from there
+    expect(getUrls(fetchMock).filter(u => u.includes('/api/events/stream?since=3'))).toHaveLength(1)
+  })
+
+  it('re-pulls from the initial event even when a later lastSeq was already known', async () => {
+    const firstShop = remoteEvent('ShopCreated', 'shop-first', { name: 'First Pull', color: '#111111' }, 1, 1)
+    const secondShop = remoteEvent('ShopCreated', 'shop-second', { name: 'Second Pull', color: '#222222' }, 1, 1)
+    let pulls = 0
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      const method = init?.method ?? 'GET'
+      if (method === 'POST' && u === '/api/events') return jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 5 })
+      if (method === 'GET' && u === '/api/events?since=0') {
+        pulls++
+        if (pulls === 1) return jsonResponse({ events: [firstShop], lastSeq: 5 })
+        return jsonResponse({ events: [secondShop], lastSeq: 1 })
+      }
+      if (method === 'GET' && u === '/api/events/stream?since=1') return sseResponse().response
+      throw new Error(`Unexpected fetch: ${method} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiClient.loadData() // lastSeq is now 5 and state holds First Pull
+    expect(await apiClient.getShops()).toHaveLength(1)
+
+    await apiClient.resync()
+
+    // the state matches the since=0 pull, not the previously known state
+    const shops = await apiClient.getShops()
+    expect(shops).toHaveLength(1)
+    expect(shops[0]!.name).toBe('Second Pull')
+    expect(shops[0]!.id).toBe('shop-second')
+
+    // the resync pull went back to since=0 — nothing skipped ahead to since=5
+    const pullUrls = getUrls(fetchMock).filter(u => u.includes('/api/events?since='))
+    expect(pulls).toBe(2)
+    expect(pullUrls).toEqual(['/api/events?since=0', '/api/events?since=0'])
+    expect(pullUrls.some(u => u.includes('since=5'))).toBe(false)
+  })
+
+  it('keeps existing subscribers: listeners keep receiving applied events during the pull and afterwards', async () => {
+    const shopEvt = remoteEvent('ShopCreated', 'shop-r', { name: 'Remote Shop', color: '#00ff00' }, 1, 4)
+    const { response } = sseResponse()
+    mockFetch([
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 }) },
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [shopEvt], lastSeq: 1 }) },
+      { method: 'GET', url: '/api/events/stream?since=1', response },
+    ])
+    const received: AppEvent[] = []
+    apiClient.subscribe(e => received.push(e))
+
+    await apiClient.createShop({ name: 'Seeded', color: '#123456' })
+    await tick()
+    await tick()
+    expect(received).toHaveLength(1) // the local commit reached the listener
+
+    await apiClient.resync()
+
+    // the pulled remote event reached the pre-existing listener
+    expect(received.map(e => e.type)).toContain('ShopCreated')
+    expect(received.map(e => e.entityId)).toContain('shop-r')
+
+    // the listener still works after the resync (reset() would have dropped it)
+    const after = await apiClient.createShop({ name: 'After', color: '#654321' })
+    await tick()
+    await tick()
+    expect(received.map(e => e.entityId)).toContain(after.id)
+  })
+
+  it('drops the outbox: pending local mutations are discarded, not published', async () => {
+    // the first mutation cannot publish: the event stays in the outbox
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down') }))
+    await apiClient.createShop({ name: 'Seeded', color: '#123456' })
+    await tick()
+    await tick()
+
+    const { response } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events: [], lastSeq: 0 }) },
+      { method: 'GET', url: '/api/events/stream?since=0', response },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 0 }) },
+    ])
+
+    await apiClient.resync()
+
+    // the outbox is empty: the next sync publishes nothing
+    await apiClient.sync()
+    const bodies = postBodies(fetchMock)
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]!.events).toEqual([])
+
+    // and the never-published mutation did not survive into the local state
+    expect(await apiClient.getShops()).toHaveLength(0)
+  })
+
+  it('reconnects the event stream after the pull (old stream torn down, no duplicates)', async () => {
+    const shopEvt = remoteEvent('ShopCreated', 'shop-r', { name: 'Remote Shop', color: '#00ff00' }, 1, 4)
+    const streamA = sseResponse()
+    const streamB = sseResponse()
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      const method = init?.method ?? 'GET'
+      if (method === 'POST' && u === '/api/events') return jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 })
+      if (method === 'GET' && u === '/api/events?since=0') return jsonResponse({ events: [shopEvt], lastSeq: 1 })
+      if (method === 'GET' && u === '/api/events/stream?since=0') return streamA.response
+      if (method === 'GET' && u === '/api/events/stream?since=1') return streamB.response
+      throw new Error(`Unexpected fetch: ${method} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    // a stream is already open (as a mounted screen would leave it)
+    apiClient.connectStream()
+    await tick()
+    expect(getUrls(fetchMock).filter(u => u.includes('/api/events/stream'))).toHaveLength(1)
+
+    await apiClient.resync()
+
+    // exactly one NEW stream opened, at the pulled lastSeq (no duplicates)
+    const streamUrls = getUrls(fetchMock).filter(u => u.includes('/api/events/stream'))
+    expect(streamUrls).toHaveLength(2)
+    expect(streamUrls.at(-1)).toContain('/api/events/stream?since=1')
+
+    // live events on the NEW stream are applied
+    streamB.feed(remoteEvent('ListCreated', 'list-live', { name: 'Live List' }, 2, 9))
+    await tick()
+    const lists = await apiClient.getLists()
+    expect(lists).toHaveLength(1)
+    expect(lists[0]!.name).toBe('Live List')
+  })
+
+  it('does not throw when the pull fails: the local copy stays dropped and empty', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down') }))
+    await apiClient.createShop({ name: 'Seeded', color: '#123456' })
+    await tick()
+    await tick()
+
+    const { response } = sseResponse()
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events/stream')) return response
+      throw new Error('network down')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(apiClient.resync()).resolves.toBeUndefined()
+
+    // the local copy stayed dropped: nothing was restored or re-applied
+    expect(await apiClient.getShops()).toHaveLength(0)
+    expect(await apiClient.getItemsWithDetails()).toHaveLength(0)
+    expect(await apiClient.getLists()).toHaveLength(0)
+  })
+})

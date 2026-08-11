@@ -331,3 +331,68 @@ describe('SettingsScreen — about', () => {
     expect(await screen.findByText(/Groceries v0\.1\.0/)).toBeInTheDocument()
   })
 })
+
+describe('SettingsScreen — resync', () => {
+  it('renders a Resync button in the last section, after About', async () => {
+    renderSettings()
+
+    const button = await screen.findByRole('button', { name: /^Resync$/ })
+    const resyncSection = button.closest('section')
+    expect(resyncSection).not.toBeNull()
+
+    // it is the LAST section on the screen
+    const sections = Array.from(resyncSection!.parentElement!.querySelectorAll('section'))
+    expect(sections.at(-1)).toBe(resyncSection)
+
+    // it comes after the About section
+    const aboutSection = (await screen.findByText(/Groceries v0\.1\.0/)).closest('section')
+    expect(aboutSection).not.toBeNull()
+    expect(aboutSection!.compareDocumentPosition(resyncSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('is styled red and full width', async () => {
+    renderSettings()
+
+    const button = await screen.findByRole('button', { name: /^Resync$/ })
+    expect(button.className).toContain('bg-red-600')
+    expect(button.className).toContain('w-full')
+  })
+
+  it('clicking Resync pulls /api/events?since=0, shows a disabled in-flight label, then restores', async () => {
+    const user = userEvent.setup()
+    let resolvePull!: (res: Response) => void
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      const method = init?.method ?? 'GET'
+      if (method === 'GET' && u === '/api/events?since=0') {
+        return new Promise<Response>(resolve => { resolvePull = resolve })
+      }
+      if (method === 'POST' && u === '/api/events') {
+        return jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 0 })
+      }
+      if (method === 'GET' && u === '/api/events/stream?since=0') {
+        return new Response(
+          new ReadableStream<Uint8Array>({ start(c) {} }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        )
+      }
+      throw new Error(`Unexpected fetch: ${method} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderSettings()
+
+    const button = await screen.findByRole('button', { name: /^Resync$/ })
+    await user.click(button)
+
+    // while the pull is in flight the button is disabled with a progress label
+    const pending = await screen.findByRole('button', { name: /Resyncing/ })
+    expect(pending).toBeDisabled()
+    expect(fetchMock).toHaveBeenCalledWith('/api/events?since=0')
+
+    // once the pull resolves the button returns to its idle state
+    resolvePull(jsonResponse({ events: [], lastSeq: 0 }))
+    const restored = await screen.findByRole('button', { name: /^Resync$/ })
+    expect(restored).not.toBeDisabled()
+  })
+})
