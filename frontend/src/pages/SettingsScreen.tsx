@@ -20,6 +20,14 @@ const SettingsScreen: FC = () => {
 
   const [bugText, setBugText] = useState('')
   const [bugStatus, setBugStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
+  const [resyncing, setResyncing] = useState(false)
+
+  const doResync = async () => {
+    setResyncing(true)
+    await apiClient.resync()
+    setResyncing(false)
+    void load()
+  }
 
   const submitBug = async () => {
     if (!bugText.trim()) return
@@ -168,6 +176,17 @@ const SettingsScreen: FC = () => {
       <section>
         <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-2">About</h2>
         <div className="px-3 py-2 bg-card border border-border rounded-md text-xs text-gray-500">Groceries v0.1.0 — offline-first groceries management</div>
+      </section>
+
+      <section>
+        <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Danger zone</h2>
+        <button
+          onClick={() => void doResync()}
+          disabled={resyncing}
+          className="w-full py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white text-xs rounded transition-colors"
+        >
+          {resyncing ? 'Resyncing…' : 'Resync'}
+        </button>
       </section>
     </div>
   )

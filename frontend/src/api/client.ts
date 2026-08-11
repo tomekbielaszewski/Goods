@@ -76,7 +76,7 @@ class ApiClient {
     return new Date(t).toISOString()
   }
 
-  reset() {
+  private clearLocal() {
     this.shops.clear()
     this.items.clear()
     this.tags.clear()
@@ -91,11 +91,15 @@ class ApiClient {
     this.outbox = []
     this.lamport = 0
     this.lastSeq = 0
-    this.listeners.clear()
     this.syncScheduled = false
     this.streamUnsub?.()
     this.streamUnsub = null
     localStorage.removeItem(SNAPSHOT_KEY)
+  }
+
+  reset() {
+    this.clearLocal()
+    this.listeners.clear()
   }
 
   private persist() {
@@ -470,6 +474,19 @@ class ApiClient {
       // offline: keep the outbox for a later retry
     }
     this.persist()
+  }
+
+  async resync(): Promise<void> {
+    this.clearLocal()
+    try {
+      const { events, lastSeq } = await fetchRemoteEvents(0)
+      for (const e of events) this.applyRemoteEvent(e)
+      this.lastSeq = Math.max(this.lastSeq, lastSeq)
+    } catch {
+      // network error: stay dropped and empty
+    }
+    this.persist()
+    this.connectStream()
   }
 
   async sync(): Promise<void> {
