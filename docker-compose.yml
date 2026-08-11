@@ -1,8 +1,9 @@
 services:
   groceries:
-    build: .
+    image: ghcr.io/tomekbielaszewski/groceries:latest
+    container_name: groceries
     ports:
       - "8080:8080"
     volumes:
-      - .:/data
+      - ./groceries:/data
     restart: unless-stopped
