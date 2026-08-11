@@ -158,7 +158,7 @@ class ApiClient {
     }
   }
 
-  private commit(event: EventInput) {
+  private commit(event: EventInput): AppEvent {
     const stamped = this.stamp(event)
     console.log(`[event] #${stamped.lamport} ${stamped.type}`, {
       entityId: stamped.entityId,
@@ -171,6 +171,7 @@ class ApiClient {
     for (const listener of this.listeners) listener(stamped)
     this.scheduleSync()
     this.persist()
+    return stamped
   }
 
   private scheduleSync() {
@@ -313,7 +314,29 @@ class ApiClient {
         })
         break
       case 'SessionItemBought':
+        if (!this.sessionItems.some(si => si.id === event.id)) {
+          this.sessionItems.push({
+            id: event.id,
+            sessionId: event.entityId,
+            itemId: event.payload.itemId,
+            action: 'bought',
+            at: event.timestamp,
+            quantity: event.payload.quantity,
+            unit: event.payload.unit,
+          })
+        }
+        break
       case 'SessionItemSkipped':
+        if (!this.sessionItems.some(si => si.id === event.id)) {
+          this.sessionItems.push({
+            id: event.id,
+            sessionId: event.entityId,
+            itemId: event.payload.itemId,
+            action: 'skipped',
+            at: event.timestamp,
+          })
+        }
+        break
       case 'BugReported':
         break
     }
@@ -721,27 +744,18 @@ class ApiClient {
     quantity?: number
     unit?: string
   }): Promise<SessionItem> {
-    const id = crypto.randomUUID()
-    const si: SessionItem = {
-      id,
-      sessionId: input.sessionId,
-      itemId: input.itemId,
-      action: input.action,
-      at: input.at,
-      quantity: input.quantity,
-      unit: input.unit,
-    }
-    this.sessionItems.push(si)
-    if (input.action === 'bought') {
-      this.commit({
-        entityId: input.sessionId,
-        type: 'SessionItemBought',
-        payload: { itemId: input.itemId, quantity: input.quantity, unit: input.unit },
-      })
-    } else {
-      this.commit({ entityId: input.sessionId, type: 'SessionItemSkipped', payload: { itemId: input.itemId } })
-    }
-    return si
+    const event = input.action === 'bought'
+      ? this.commit({
+          entityId: input.sessionId,
+          type: 'SessionItemBought',
+          payload: { itemId: input.itemId, quantity: input.quantity, unit: input.unit },
+        })
+      : this.commit({
+          entityId: input.sessionId,
+          type: 'SessionItemSkipped',
+          payload: { itemId: input.itemId },
+        })
+    return this.sessionItems.find(si => si.id === event.id)!
   }
 
   async reportBug(text: string): Promise<string> {
