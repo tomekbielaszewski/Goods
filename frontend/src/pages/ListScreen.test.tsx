@@ -203,6 +203,69 @@ describe('ListScreen — quantity default when adding via search', () => {
     expect(suggestion).not.toHaveClass('hover:border-blue-500')
   })
 
+  it('newly added item card animates in when added from suggestions', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const item = makeItem('i1', { name: 'Butter' })
+    const li = makeListItem('li1', 'l1', 'i1')
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+
+    renderList('l1')
+
+    await screen.findByText('Butter')
+
+    const removeBtn = screen.getByRole('button', { name: /remove from list/i })
+    await user.click(removeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Butter/ })).toBeTruthy()
+    })
+
+    await user.click(screen.getByRole('button', { name: /^Butter/ }))
+
+    await waitFor(() => {
+      const entering = document.querySelector('[class*="animate-item-in"]')
+      expect(entering).toBeTruthy()
+      expect(entering?.textContent).toContain('Butter')
+    })
+  })
+
+  it('tapped suggestion row collapses out before disappearing', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const item = makeItem('i1', { name: 'Butter' })
+    const li = makeListItem('li1', 'l1', 'i1')
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+
+    renderList('l1')
+
+    await screen.findByText('Butter')
+
+    const removeBtn = screen.getByRole('button', { name: /remove from list/i })
+    await user.click(removeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Butter/ })).toBeTruthy()
+    })
+
+    await user.click(screen.getByRole('button', { name: /^Butter/ }))
+
+    await waitFor(() => {
+      expect(document.querySelector('[class*="grid-rows-[0fr]"]')).toBeTruthy()
+    })
+
+    await waitFor(
+      () => {
+        expect(document.querySelector('[class*="grid-rows-[0fr]"]')).toBeNull()
+      },
+      { timeout: 2000 }
+    )
+  })
+
   it('does not create duplicate listItem when addItem is called while listItems state is loading', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')

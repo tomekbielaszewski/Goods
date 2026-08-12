@@ -84,6 +84,19 @@ const ListScreen: FC = () => {
   const activeItems = sorted.filter(li => li.state === 'active')
   const boughtItems = sorted.filter(li => li.state === 'bought')
 
+  const [enteringIds, setEnteringIds] = useState<ReadonlySet<string>>(new Set())
+  const knownIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (activeItems.length === 0) return
+    if (knownIds.current === null) {
+      knownIds.current = new Set(activeItems.map(li => li.id))
+      return
+    }
+    const fresh = activeItems.filter(li => !knownIds.current!.has(li.id)).map(li => li.id)
+    knownIds.current = new Set(activeItems.map(li => li.id))
+    if (fresh.length > 0) setEnteringIds(prev => new Set([...prev, ...fresh]))
+  }, [activeItems])
+
   const addItem = async (item: ItemWithDetails) => {
     if (!id) return
     const existing = listItems.find(li => li.itemId === item.id)
@@ -294,6 +307,7 @@ const ListScreen: FC = () => {
                 mode="browse"
                 listItem={li}
                 shops={shops}
+                className={enteringIds.has(li.id) ? 'animate-item-in' : undefined}
                 onRemove={isArchived ? undefined : () => void removeItem(li)}
                 onQuantityChange={isArchived ? undefined : (qty, unit) => void updateQuantity(li, qty, unit)}
                 onClick={() => navigate(`/item/${li.itemId}`)}
