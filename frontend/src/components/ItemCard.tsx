@@ -18,6 +18,7 @@ interface BrowseCardProps {
   onRemove?: () => void
   onQuantityChange?: (qty: number | undefined, unit: string | undefined) => void
   onClick?: () => void
+  className?: string
 }
 
 // ── Shopping mode ────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ const G_ML_SUB_STEPS = [10, 25, 50, 75, 100]
 const isGMl = (u: string) => u === 'g' || u === 'ml'
 const findGMlIdx = (v: number) => G_ML_SUB_STEPS.findIndex(s => Math.abs(s - v) < 0.1)
 
-const BrowseCard: FC<BrowseCardProps> = ({ listItem, onRemove, onQuantityChange, onClick }) => {
+const BrowseCard: FC<BrowseCardProps> = ({ listItem, onRemove, onQuantityChange, onClick, className }) => {
   const bought = listItem.state === 'bought'
   const unit = listItem.unit ?? listItem.item.unit ?? ''
   const qty  = listItem.quantity != null ? listItem.quantity : undefined
@@ -121,7 +122,7 @@ const BrowseCard: FC<BrowseCardProps> = ({ listItem, onRemove, onQuantityChange,
   }
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'}`}>
+    <div className={`flex items-center gap-2 px-3 py-2 bg-card border rounded-md transition-colors ${bought ? 'border-border opacity-60' : 'border-border'} ${className ?? ''}`}>
       {/* State indicator (read-only) */}
       <div
         className={`w-5 h-5 rounded border flex-shrink-0 ${bought ? 'bg-blue-600 border-blue-600' : 'border-gray-500'}`}
