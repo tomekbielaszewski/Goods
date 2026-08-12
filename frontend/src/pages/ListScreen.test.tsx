@@ -184,6 +184,25 @@ describe('ListScreen — quantity default when adding via search', () => {
     })
   })
 
+  it('suggestion rows in "Not added" panel have no hover highlight', async () => {
+    const list = makeList('l1')
+    const item = makeItem('i1', { name: 'Butter' })
+    const li = makeListItem('li1', 'l1', 'i1')
+    store.lists.set(list.id, list)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+
+    renderList('l1')
+
+    await screen.findByText('Butter')
+
+    const removeBtn = screen.getByRole('button', { name: /remove from list/i })
+    await userEvent.setup().click(removeBtn)
+
+    const suggestion = await waitFor(() => screen.getByRole('button', { name: /^Butter/ }))
+    expect(suggestion).not.toHaveClass('hover:border-blue-500')
+  })
+
   it('does not create duplicate listItem when addItem is called while listItems state is loading', async () => {
     const user = userEvent.setup()
     const list = makeList('l1')
