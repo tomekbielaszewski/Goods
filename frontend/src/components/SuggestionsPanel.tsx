@@ -25,7 +25,7 @@ const SuggestionsPanel: FC<SuggestionsPanelProps> = ({ listId, refresh, onAdd })
           <button
             key={item.id}
             onClick={() => onAdd(item)}
-            className="w-full flex items-center justify-between px-3 py-2 bg-card border border-border rounded-md hover:border-blue-500 transition-colors text-left"
+            className="w-full flex items-center justify-between px-3 py-2 bg-card border border-border rounded-md transition-colors text-left"
           >
             <span className="text-sm font-medium text-gray-300 truncate">{item.name}</span>
             {item.frequency > 0 && (
