@@ -52,4 +52,17 @@ describe('ShopDot', () => {
     const dot = container.firstChild as HTMLElement
     expect(dot.getAttribute('title')).toBeNull()
   })
+
+  it('renders a colored border ring instead of a filled background when filled is false', () => {
+    const { container } = render(<ShopDot color="#ff0000" filled={false} />)
+    const dot = container.firstChild as HTMLElement
+    expect(dot.style.backgroundColor).toBe('')
+    expect(dot.style.border).toContain('#ff0000')
+  })
+
+  it('has no border when filled (default)', () => {
+    const { container } = render(<ShopDot color="#ff0000" />)
+    const dot = container.firstChild as HTMLElement
+    expect(dot.style.border).toBe('')
+  })
 })

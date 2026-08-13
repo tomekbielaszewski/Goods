@@ -241,10 +241,10 @@ const ItemDetailScreen: FC = () => {
                 <button
                   key={shop.id}
                   onClick={() => setSelectedShops(prev => selected ? prev.filter(id => id !== shop.id) : [...prev, shop.id])}
-                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'border-transparent text-white' : 'border-border text-gray-400 hover:border-gray-500'}`}
-                  style={selected ? { backgroundColor: shop.color } : undefined}
+                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'border-transparent text-gray-100' : 'border-border text-gray-400 hover:border-gray-500'}`}
+                  style={selected ? { borderColor: shop.color } : undefined}
                 >
-                  <ShopDot color={shop.color} />
+                  <ShopDot color={shop.color} filled={selected} />
                   {shop.name}
                 </button>
               )

@@ -175,6 +175,41 @@ describe('ItemDetailScreen — shop selection', () => {
       expect(screen.getByText('Aldi')).toBeInTheDocument()
     })
   })
+
+  it('shows the dot as a colored ring when the shop is not selected', async () => {
+    const now = new Date().toISOString()
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+
+    renderNewItem()
+
+    await waitFor(() => {
+      const lidlBtn = screen.getByRole('button', { name: /lidl/i })
+      const dot = lidlBtn.querySelector('span') as HTMLElement
+      expect(dot.style.backgroundColor).toBe('')
+      expect(dot.style.border).toContain('#ff0000')
+      // the pill itself must not be filled with the shop color
+      expect(lidlBtn.style.backgroundColor).toBe('')
+    })
+  })
+
+  it('fills the dot with the shop color when the shop is selected', async () => {
+    const now = new Date().toISOString()
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+
+    const user = userEvent.setup()
+    renderNewItem()
+
+    const lidlBtn = await screen.findByRole('button', { name: /lidl/i })
+    const dot = lidlBtn.querySelector('span') as HTMLElement
+    await user.click(lidlBtn)
+
+    await waitFor(() => {
+      expect(dot.style.backgroundColor).toBe('#ff0000')
+      // the pill keeps a neutral background so the filled dot stays visible
+      expect(lidlBtn.style.backgroundColor).toBe('')
+      expect(lidlBtn.style.borderColor).toBe('#ff0000')
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
