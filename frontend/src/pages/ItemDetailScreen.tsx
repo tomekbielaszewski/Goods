@@ -244,7 +244,8 @@ const ItemDetailScreen: FC = () => {
                   className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'border-transparent text-white' : 'border-border text-gray-400 hover:border-gray-500'}`}
                   style={selected ? { backgroundColor: shop.color } : undefined}
                 >
-                  <ShopDot color={shop.color} title={shop.name} />
+                  <ShopDot color={shop.color} />
+                  {shop.name}
                 </button>
               )
             })}
