@@ -514,6 +514,77 @@ describe('connectStream', () => {
   })
 })
 
+// ── stale-echo guards (bought-state flicker) ──────────────────────────────────
+// The server echoes every event back to the origin client. On a flaky network
+// an echo can arrive in a separate delivery from the rest (poller racing a
+// newer cursor, SSE dropping mid-burst). Re-applying a ListItemAdded event
+// must not overwrite the item's CURRENT state — the add payload permanently
+// says state: 'active'. And re-applying an already-applied event id must be a
+// complete no-op.
+
+describe('stale-echo guards (bought-state flicker fix)', () => {
+  it('a stale ListItemAdded echo does not reset a bought list item back to active', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (u.includes('/api/events?since=')) {
+        // The delayed echo of the ORIGINAL ListItemAdded event — payload still
+        // state: 'active' — arrives through a later pull.
+        return jsonResponse({ events: [staleEcho], lastSeq: 1 })
+      }
+      if (init?.method === 'POST') {
+        return jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 })
+      }
+      throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    // The item was added earlier and is already bought locally.
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+    await apiClient.setListItemState(li.id, 'bought')
+    await tick() // flush the auto-sync POSTs from the setup commits
+
+    const staleEcho = remoteEvent('ListItemAdded', li.id, { listId: list.id, itemId: item.id, state: 'active', quantity: 2, unit: '' }, 1, 1)
+
+    await apiClient.loadData()
+
+    const stored = (await apiClient.getListItemsWithItems(list.id))[0]!
+    expect(stored.state).toBe('bought')
+  })
+
+  it('an echoed copy of a locally committed event is a no-op: no duplicate listener, no state or version change', async () => {
+    const { response, feed } = sseResponse()
+    const fetchMock = mockFetch([
+      { method: 'GET', url: '/api/events/stream?', response },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 1 }) },
+    ])
+    const received: AppEvent[] = []
+    apiClient.subscribe(e => received.push(e))
+
+    const list = await apiClient.createList('Weekly')
+    const item = await apiClient.createItem({ name: 'Milk' }, [], [])
+    const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+    await apiClient.setListItemState(li.id, 'bought')
+    await tick() // flush the auto-sync POST that carried the buy event
+
+    const echoed = postBodies(fetchMock).at(-1)!.events.find(e => e.type === 'ListItemStateChanged')!
+    expect(echoed).toBeDefined()
+    const versionAfterBuy = (await apiClient.getListItemsWithItems(list.id))[0]!.version
+
+    // The server echoes OUR OWN event back over the stream — same event id.
+    const unsubscribe = apiClient.connectStream()
+    feed({ ...echoed, seq: 1 } as ServerEvent)
+    await tick()
+
+    const after = (await apiClient.getListItemsWithItems(list.id))[0]!
+    expect(after.state).toBe('bought')
+    expect(after.version).toBe(versionAfterBuy)
+    expect(received.filter(e => e.id === echoed.id)).toHaveLength(1)
+    unsubscribe()
+  })
+})
+
 // ── connectStream — resilient fallback (polling + reconnect) ──────────────────
 // Dev-proxy limitation: the Vite proxy can relay only ONE SSE stream; the next
 // stream attempt fails (and the failure is currently an unhandled rejection).

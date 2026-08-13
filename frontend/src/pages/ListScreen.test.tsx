@@ -553,6 +553,40 @@ describe('ListScreen — live updates from remote events', () => {
     })
     unsubscribe()
   })
+
+  it('a late ListItemAdded echo does not yank a bought item back into the active list', async () => {
+    const user = userEvent.setup()
+    const list = makeList('l1')
+    const shop = makeShop('s1', { name: 'Supermarket' })
+    const item = makeItem('i1', { name: 'Milk' })
+    const li = makeListItem('li1', 'l1', 'i1', { state: 'bought' })
+    store.lists.set(list.id, list)
+    store.shops.set(shop.id, shop)
+    store.items.set(item.id, item)
+    store.listItems.set(li.id, li)
+    store.itemShops.push({ itemId: 'i1', shopId: 's1' })
+
+    renderList('l1')
+
+    // Enter shopping mode: the bought item is in the struck-through Bought section.
+    await user.click(await screen.findByRole('button', { name: /^shop$/i }))
+    await screen.findByText('Milk')
+
+    // The server delivers a delayed echo of the ORIGINAL ListItemAdded event
+    // (payload still state: 'active') after the item was already bought.
+    const { unsubscribe, feed } = openStream()
+    let applied = false
+    const off = apiClient.subscribe(() => { applied = true })
+    feed(remoteEvent('ListItemAdded', 'li1', { listId: 'l1', itemId: 'i1', state: 'active', quantity: 2, unit: '' }, 6, 10))
+    await waitFor(() => {
+      expect(applied).toBe(true)
+    })
+    off()
+
+    // The stale echo must NOT reset the item to active (the reported flicker).
+    expect(store.listItems.get('li1')!.state).toBe('bought')
+    unsubscribe()
+  })
 })
 
 // ---------------------------------------------------------------------------
