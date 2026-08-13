@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ItemDetailScreen from './ItemDetailScreen'
@@ -153,6 +153,26 @@ describe('ItemDetailScreen — tag filtering', () => {
       expect(screen.queryByRole('button', { name: '+ dairy' })).not.toBeInTheDocument()
       expect(screen.getByText('dairy')).toBeInTheDocument()
       expect(input).toHaveValue('')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// shop selection — names must be visible
+// ---------------------------------------------------------------------------
+
+describe('ItemDetailScreen — shop selection', () => {
+  it('shows the shop name as visible text next to the color dot', async () => {
+    const now = new Date().toISOString()
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+    store.shops.set('s2', { id: 's2', name: 'Aldi', color: '#0000ff', version: 1, updatedAt: now })
+
+    renderNewItem()
+
+    await waitFor(() => {
+      // The name must be rendered as real text — not just a hover tooltip (title attribute)
+      expect(screen.getByText('Lidl')).toBeInTheDocument()
+      expect(screen.getByText('Aldi')).toBeInTheDocument()
     })
   })
 })
@@ -325,7 +345,7 @@ describe('ItemDetailScreen — purchase history table', () => {
     renderItem('i1')
 
     await waitFor(() => {
-      expect(screen.getByText('Lidl')).toBeInTheDocument()
+      expect(within(screen.getByRole('table')).getByText('Lidl')).toBeInTheDocument()
     })
   })
 
