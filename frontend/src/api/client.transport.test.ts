@@ -517,22 +517,32 @@ describe('connectStream', () => {
 // ── stale-echo guards (bought-state flicker) ──────────────────────────────────
 // The server echoes every event back to the origin client. On a flaky network
 // an echo can arrive in a separate delivery from the rest (poller racing a
-// newer cursor, SSE dropping mid-burst). Re-applying a ListItemAdded event
+// newer cursor, SSE dropping mid-burst). An echo carries the ORIGINAL
+// client-stamped id and its original seq — the tests replay the actual
+// committed event, not a regenerated copy. Re-applying a ListItemAdded event
 // must not overwrite the item's CURRENT state — the add payload permanently
 // says state: 'active'. And re-applying an already-applied event id must be a
 // complete no-op.
 
 describe('stale-echo guards (bought-state flicker fix)', () => {
   it('a stale ListItemAdded echo does not reset a bought list item back to active', async () => {
+    // The server assigns seqs in log order as events arrive; the setup
+    // commits below happen before the echo is built, so staleEcho can only
+    // be referenced by the pull branch once it is assigned.
+    let staleEcho: ServerEvent
+    let serverSeq = 0
     const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
       const u = String(url)
-      if (u.includes('/api/events?since=')) {
-        // The delayed echo of the ORIGINAL ListItemAdded event — payload still
-        // state: 'active' — arrives through a later pull.
-        return jsonResponse({ events: [staleEcho], lastSeq: 1 })
-      }
       if (init?.method === 'POST') {
-        return jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 1 })
+        const body = JSON.parse(init.body as string) as { events: ServerEvent[] }
+        serverSeq += body.events.length
+        return jsonResponse({ accepted: body.events.length, duplicates: 0, lastSeq: serverSeq })
+      }
+      if (u.includes('/api/events?since=')) {
+        // A pull issued with an older cursor returns late, so it can carry an
+        // event whose seq is <= the client's current cursor: the echo of the
+        // ORIGINAL ListItemAdded event (same id, payload still state: 'active').
+        return jsonResponse({ events: [staleEcho], lastSeq: serverSeq })
       }
       throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${u}`)
     })
@@ -545,7 +555,11 @@ describe('stale-echo guards (bought-state flicker fix)', () => {
     await apiClient.setListItemState(li.id, 'bought')
     await tick() // flush the auto-sync POSTs from the setup commits
 
-    const staleEcho = remoteEvent('ListItemAdded', li.id, { listId: list.id, itemId: item.id, state: 'active', quantity: 2, unit: '' }, 1, 1)
+    // The delayed echo is the ORIGINAL ListItemAdded event — same event id
+    // (the server stores and echoes the client-stamped id), same seq (it was
+    // the third event in the log).
+    const added = postBodies(fetchMock).at(-1)!.events.find(e => e.type === 'ListItemAdded')!
+    staleEcho = { ...added, seq: 3 } as ServerEvent
 
     await apiClient.loadData()
 
@@ -555,16 +569,34 @@ describe('stale-echo guards (bought-state flicker fix)', () => {
 
   it('an echoed copy of a locally committed event is a no-op: no duplicate listener, no state or version change', async () => {
     const { response, feed } = sseResponse()
-    const fetchMock = mockFetch([
-      { method: 'GET', url: '/api/events/stream?', response },
-      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 1, duplicates: 0, lastSeq: 1 }) },
-    ])
+    // The server assigns seqs in log order as events arrive; the stream is
+    // opened with the client's current cursor (lastSeq at connect time).
+    let serverSeq = 0
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit): Promise<Response> => {
+      const u = String(url)
+      if (init?.method === 'POST') {
+        const body = JSON.parse(init.body as string) as { events: ServerEvent[] }
+        serverSeq += body.events.length
+        return jsonResponse({ accepted: body.events.length, duplicates: 0, lastSeq: serverSeq })
+      }
+      if (u.includes('/api/events/stream?')) {
+        return response
+      }
+      throw new Error(`Unexpected fetch: ${init?.method ?? 'GET'} ${u}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
     const received: AppEvent[] = []
     apiClient.subscribe(e => received.push(e))
 
     const list = await apiClient.createList('Weekly')
     const item = await apiClient.createItem({ name: 'Milk' }, [], [])
     const li = await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active' })
+    await tick() // flush the auto-sync POSTs from the setup commits
+
+    // The stream was opened with the pre-buy cursor, so the server's echo of
+    // the buy event (seq > cursor) is a legitimate delivery that races the
+    // client's own local apply of the same event id.
+    const unsubscribe = apiClient.connectStream()
     await apiClient.setListItemState(li.id, 'bought')
     await tick() // flush the auto-sync POST that carried the buy event
 
@@ -572,9 +604,9 @@ describe('stale-echo guards (bought-state flicker fix)', () => {
     expect(echoed).toBeDefined()
     const versionAfterBuy = (await apiClient.getListItemsWithItems(list.id))[0]!.version
 
-    // The server echoes OUR OWN event back over the stream — same event id.
-    const unsubscribe = apiClient.connectStream()
-    feed({ ...echoed, seq: 1 } as ServerEvent)
+    // The server echoes OUR OWN event back over the stream — same event id,
+    // same seq as in the log.
+    feed({ ...echoed, seq: serverSeq } as ServerEvent)
     await tick()
 
     const after = (await apiClient.getListItemsWithItems(list.id))[0]!

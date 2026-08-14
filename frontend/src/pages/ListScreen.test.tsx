@@ -8,6 +8,7 @@ import { apiClient } from '../api/client'
 import { useStore } from '../store/useStore'
 import type { Item, List, ListItem, Shop, Tag, ItemShop, ItemTag, ListItemSkippedShop, ShoppingSession, SessionItem } from '../types'
 import type { ServerEvent } from '../api/transport'
+import type { AppEvent } from '../types/event'
 
 const store = apiClient as unknown as {
   shops: Map<string, Shop>
@@ -494,6 +495,10 @@ describe('ListScreen — live updates from remote events', () => {
     }
   }
 
+  // Flushes microtasks + one macrotask so a fed stream event has been
+  // processed (same convention as client.transport.test.ts).
+  const tick = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
+
   // Stubs fetch for the stream route only (screens never fetch on their own)
   // and opens the client's SSE stream, returning feed() to deliver events.
   const openStream = (): { unsubscribe: () => void; feed: (ev: ServerEvent) => void } => {
@@ -556,15 +561,19 @@ describe('ListScreen — live updates from remote events', () => {
 
   it('a late ListItemAdded echo does not yank a bought item back into the active list', async () => {
     const user = userEvent.setup()
-    const list = makeList('l1')
     const shop = makeShop('s1', { name: 'Supermarket' })
-    const item = makeItem('i1', { name: 'Milk' })
-    const li = makeListItem('li1', 'l1', 'i1', { state: 'bought' })
-    store.lists.set(list.id, list)
     store.shops.set(shop.id, shop)
-    store.items.set(item.id, item)
-    store.listItems.set(li.id, li)
-    store.itemShops.push({ itemId: 'i1', shopId: 's1' })
+
+    // Commit the setup through the client so the ORIGINAL ListItemAdded event
+    // (client-stamped id) is in the client's event log — the server echoes
+    // that exact event back, not a regenerated copy.
+    await apiClient.createList('Test list', 'l1')
+    await apiClient.createItem({ name: 'Milk' }, ['s1'], [], 'i1')
+    const added: AppEvent[] = []
+    const capture = apiClient.subscribe(e => { if (e.type === 'ListItemAdded') added.push(e) })
+    const li = await apiClient.addListItem({ listId: 'l1', itemId: 'i1', state: 'active' })
+    capture()
+    await apiClient.setListItemState(li.id, 'bought')
 
     renderList('l1')
 
@@ -573,18 +582,13 @@ describe('ListScreen — live updates from remote events', () => {
     await screen.findByText('Milk')
 
     // The server delivers a delayed echo of the ORIGINAL ListItemAdded event
-    // (payload still state: 'active') after the item was already bought.
+    // (same id, payload still state: 'active') after the item was already bought.
     const { unsubscribe, feed } = openStream()
-    let applied = false
-    const off = apiClient.subscribe(() => { applied = true })
-    feed(remoteEvent('ListItemAdded', 'li1', { listId: 'l1', itemId: 'i1', state: 'active', quantity: 2, unit: '' }, 6, 10))
-    await waitFor(() => {
-      expect(applied).toBe(true)
-    })
-    off()
+    feed({ ...added[0]!, seq: 4 } as ServerEvent)
+    await tick()
 
     // The stale echo must NOT reset the item to active (the reported flicker).
-    expect(store.listItems.get('li1')!.state).toBe('bought')
+    expect(store.listItems.get(li.id)!.state).toBe('bought')
     unsubscribe()
   })
 })
