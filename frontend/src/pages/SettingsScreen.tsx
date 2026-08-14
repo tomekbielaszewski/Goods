@@ -4,6 +4,7 @@ import { apiClient } from '../api/client'
 import type { Shop } from '../types'
 import ShopDot from '../components/ShopDot'
 import { useLiveData } from '../components/useLiveData'
+import { APP_VERSION } from '../version'
 
 const PALETTE = [
   '#ef4444', '#6e2600', '#eab308', '#22c55e',
@@ -175,7 +176,7 @@ const SettingsScreen: FC = () => {
 
       <section>
         <h2 className="text-xs text-gray-500 uppercase tracking-wider mb-2">About</h2>
-        <div className="px-3 py-2 bg-card border border-border rounded-md text-xs text-gray-500">Groceries v0.1.0 — offline-first groceries management</div>
+        <div className="px-3 py-2 bg-card border border-border rounded-md text-xs text-gray-500">Groceries {APP_VERSION}</div>
       </section>
 
       <section>

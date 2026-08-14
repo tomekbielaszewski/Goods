@@ -8,6 +8,7 @@ import SettingsScreen from './SettingsScreen'
 import { apiClient } from '../api/client'
 import type { Shop } from '../types'
 import { useParams } from 'react-router-dom'
+import { APP_VERSION } from '../version'
 
 const ShopProbe = () => {
   const { id } = useParams<{ id: string }>()
@@ -326,9 +327,15 @@ describe('SettingsScreen — bug report', () => {
 })
 
 describe('SettingsScreen — about', () => {
-  it('renders the about section', async () => {
+  it('renders the app name with the current build version', async () => {
     renderSettings()
-    expect(await screen.findByText(/Groceries v0\.1\.0/)).toBeInTheDocument()
+    expect(await screen.findByText(`Groceries ${APP_VERSION}`)).toBeInTheDocument()
+  })
+
+  it('does not render the tagline text', async () => {
+    renderSettings()
+    await screen.findByText(`Groceries ${APP_VERSION}`)
+    expect(screen.queryByText(/offline-first/)).not.toBeInTheDocument()
   })
 })
 
@@ -345,7 +352,7 @@ describe('SettingsScreen — resync', () => {
     expect(sections.at(-1)).toBe(resyncSection)
 
     // it comes after the About section
-    const aboutSection = (await screen.findByText(/Groceries v0\.1\.0/)).closest('section')
+    const aboutSection = (await screen.findByText(`Groceries ${APP_VERSION}`)).closest('section')
     expect(aboutSection).not.toBeNull()
     expect(aboutSection!.compareDocumentPosition(resyncSection!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
