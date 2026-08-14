@@ -128,3 +128,57 @@ describe('SearchInput — duplicate prevention when item is excluded (already on
     expect(onCreateNew).not.toHaveBeenCalled()
   })
 })
+
+describe('SearchInput — dropdown elevation styling', () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([makeItem()])
+  })
+
+  it('renders the dropdown container with role listbox after a query', async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    const onCreateNew = vi.fn()
+
+    render(
+      <SearchInput onSelect={onSelect} onCreateNew={onCreateNew} />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'jabl')
+
+    const listbox = await screen.findByRole('listbox')
+    expect(listbox).toBeInTheDocument()
+  })
+
+  it('gives the listbox a bg-elevated surface so it stands out from the page cards', async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    const onCreateNew = vi.fn()
+
+    render(
+      <SearchInput onSelect={onSelect} onCreateNew={onCreateNew} />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'jabl')
+
+    const listbox = await screen.findByRole('listbox')
+    expect(listbox).toHaveClass('bg-elevated')
+  })
+
+  it('gives the listbox a shadow-2xl drop shadow so it stands out from the page cards', async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    const onCreateNew = vi.fn()
+
+    render(
+      <SearchInput onSelect={onSelect} onCreateNew={onCreateNew} />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'jabl')
+
+    const listbox = await screen.findByRole('listbox')
+    expect(listbox).toHaveClass('shadow-2xl')
+  })
+})
