@@ -65,7 +65,7 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
         className="w-full bg-card border border-border rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
       />
       {open && (results.length > 0 || query.trim()) && (
-        <div className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 right-0 bg-card border border-border rounded shadow-lg z-50 overflow-hidden`}>
+        <div role="listbox" className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 right-0 bg-elevated border border-border/80 rounded shadow-2xl z-50 overflow-hidden`}>
           {results.map(item => (
             <button
               key={item.id}

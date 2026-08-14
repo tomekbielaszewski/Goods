@@ -8,6 +8,7 @@ export default {
         surface: '#0f1117',
         card:    '#1a1d27',
         border:  '#2a2d3a',
+        elevated: '#222633',
         muted:   '#6b7280',
       },
       fontFamily: {
