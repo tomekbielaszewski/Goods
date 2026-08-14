@@ -61,6 +61,7 @@ class ApiClient {
   private sessionItems: SessionItem[] = []
 
   private events: AppEvent[] = []
+  private appliedIds = new Set<string>()
   private outbox: AppEvent[] = []
   private clientId: string = crypto.randomUUID()
   private lamport = 0
@@ -88,6 +89,7 @@ class ApiClient {
     this.shoppingSessions.clear()
     this.sessionItems = []
     this.events = []
+    this.appliedIds.clear()
     this.outbox = []
     this.lamport = 0
     this.lastSeq = 0
@@ -203,6 +205,7 @@ class ApiClient {
   }
 
   private applyEvent(event: AppEvent) {
+    this.appliedIds.add(event.id)
     switch (event.type) {
       case 'ShopCreated':
         this.shops.set(event.entityId, {
@@ -566,10 +569,11 @@ class ApiClient {
   }
 
   private applyRemoteEvent(e: ServerEvent) {
-    this.applyEvent(e)
-    for (const listener of this.listeners) listener(e)
     this.lastSeq = Math.max(this.lastSeq, e.seq)
     this.lamport = Math.max(this.lamport, e.lamport)
+    if (this.appliedIds.has(e.id)) return
+    this.applyEvent(e)
+    for (const listener of this.listeners) listener(e)
   }
 
   // ── Mutations (granular events) ──────────────────────────────────────────────
