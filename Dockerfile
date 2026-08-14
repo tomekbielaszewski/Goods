@@ -1,9 +1,12 @@
 # Stage 1: build frontend
 FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
+ARG VITE_APP_VERSION=
+ARG VITE_GIT_SHA=
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+ENV VITE_APP_VERSION=$VITE_APP_VERSION VITE_GIT_SHA=$VITE_GIT_SHA
 RUN npm run build
 
 # Stage 2: build Go binary (always on native builder arch, cross-compile for target)
