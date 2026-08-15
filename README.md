@@ -11,7 +11,7 @@ shopping. Syncs in the background when connectivity is available.
 
 | Tool             | Version    | Notes               |
 |------------------|------------|---------------------|
-| Go               | ≥ 1.25     | `go version`        |
+| Go               | ≥ 1.26     | `go version`        |
 | Node.js          | ≥ 22       | `node --version`    |
 | Docker + Compose | any recent | for deployment only |
 
@@ -86,11 +86,11 @@ instance.
 ```bash
 cd frontend
 
-# Run all tests once
+# Watch mode by default (re-runs on file changes)
 npm test
 
-# Watch mode (re-runs on file changes)
-npx vitest
+# Run all tests once (e.g. in CI)
+npx vitest run
 
 # With coverage report
 npm run test:coverage
