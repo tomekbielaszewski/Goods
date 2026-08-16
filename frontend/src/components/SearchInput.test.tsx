@@ -182,3 +182,88 @@ describe('SearchInput — dropdown elevation styling', () => {
     expect(listbox).toHaveClass('shadow-2xl')
   })
 })
+
+describe('SearchInput — "+ One-time" action', () => {
+  it('shows both "+ Add" and "+ One-time" for a non-matching name and clicking "+ One-time" calls onAddOneTime', async () => {
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([])
+    const user = userEvent.setup()
+    const onCreateNew = vi.fn()
+    const onAddOneTime = vi.fn()
+
+    render(
+      <SearchInput onSelect={vi.fn()} onCreateNew={onCreateNew} onAddOneTime={onAddOneTime} />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'brandnewitem')
+
+    await waitFor(() => expect(screen.getByText('+ Add "brandnewitem"')).toBeInTheDocument())
+    const oneTimeBtn = screen.getByText('+ One-time: "brandnewitem"')
+
+    await user.click(oneTimeBtn)
+
+    expect(onAddOneTime).toHaveBeenCalledOnce()
+    expect(onAddOneTime).toHaveBeenCalledWith('brandnewitem')
+    expect(onCreateNew).not.toHaveBeenCalled()
+  })
+
+  it('hides "+ One-time" when the typed name is in excludeOneTimeNames (but keeps "+ Add")', async () => {
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([])
+    const user = userEvent.setup()
+    const onAddOneTime = vi.fn()
+
+    render(
+      <SearchInput
+        onSelect={vi.fn()}
+        onCreateNew={vi.fn()}
+        onAddOneTime={onAddOneTime}
+        excludeOneTimeNames={new Set(['brandnewitem'])}
+      />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'brandnewitem')
+
+    await waitFor(() => expect(screen.getByText('+ Add "brandnewitem"')).toBeInTheDocument())
+    expect(screen.queryByText('+ One-time: "brandnewitem"')).not.toBeInTheDocument()
+  })
+
+  it('does not suppress "+ One-time" for other lists: only the passed excludeOneTimeNames set applies', async () => {
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([])
+    const user = userEvent.setup()
+    const onAddOneTime = vi.fn()
+
+    // a different list has its own one-time names; this list's set does not
+    // contain the typed name, so the action must remain available
+    render(
+      <SearchInput
+        onSelect={vi.fn()}
+        onCreateNew={vi.fn()}
+        onAddOneTime={onAddOneTime}
+        excludeOneTimeNames={new Set(['something-else'])}
+      />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'brandnewitem')
+
+    await waitFor(() => expect(screen.getByText('+ Add "brandnewitem"')).toBeInTheDocument())
+    expect(screen.getByText('+ One-time: "brandnewitem"')).toBeInTheDocument()
+  })
+
+  it('shows neither "+ Add" nor "+ One-time" when the typed name exactly matches a catalogue item', async () => {
+    vi.mocked(apiClient.getItemsWithDetails).mockResolvedValue([makeItem()])
+    const user = userEvent.setup()
+
+    render(
+      <SearchInput onSelect={vi.fn()} onCreateNew={vi.fn()} onAddOneTime={vi.fn()} />
+    )
+
+    const input = screen.getByPlaceholderText('Search items…')
+    await user.type(input, 'Jabłka')
+
+    await waitFor(() => expect(vi.mocked(apiClient.getItemsWithDetails)).toHaveBeenCalled())
+    expect(screen.queryByText('+ Add "Jabłka"')).not.toBeInTheDocument()
+    expect(screen.queryByText('+ One-time: "Jabłka"')).not.toBeInTheDocument()
+  })
+})

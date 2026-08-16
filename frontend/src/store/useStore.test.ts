@@ -14,6 +14,7 @@ const { mockApi } = vi.hoisted(() => ({
     getItemsWithDetails: vi.fn(),
     getItemWithDetails: vi.fn(),
     createItem: vi.fn(),
+    createOneTimeItem: vi.fn(),
     updateItem: vi.fn(),
     saveItemShopsAndTags: vi.fn(),
     assignShopToItem: vi.fn(),
@@ -269,6 +270,23 @@ describe('useStore — item actions', () => {
     mockApi.removeShopFromItem.mockResolvedValue(undefined)
     await useStore.getState().removeItemFromShop('i1', 's1')
     expect(mockApi.removeShopFromItem).toHaveBeenCalledWith('i1', 's1')
+  })
+
+  it('createOneTimeItem passes the item payload, relations and caller id through to apiClient', async () => {
+    const item: Item = {
+      id: 'ot-1', name: 'Special Cheese', unit: 'kg', defaultQuantity: 1,
+      version: 1, createdAt: '2024-01-01T00:00:00Z', updatedAt: '2024-01-01T00:00:00Z',
+    }
+    mockApi.createOneTimeItem.mockResolvedValue(item)
+
+    await useStore.getState().createOneTimeItem(item, ['s1'], ['t1'])
+    expect(mockApi.createOneTimeItem).toHaveBeenCalledWith(
+      { name: 'Special Cheese', unit: 'kg', defaultQuantity: 1, description: undefined, notes: undefined },
+      ['s1'],
+      ['t1'],
+      'ot-1',
+    )
+    expect(mockApi.createItem).not.toHaveBeenCalled()
   })
 })
 

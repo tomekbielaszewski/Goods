@@ -1081,3 +1081,159 @@ describe('bug reports', () => {
     expect(events[0]!.lamport).toBe(2)
   })
 })
+
+// ── One-time items ─────────────────────────────────────────────────────────────
+// A one-time item is a fully real item created via OneTimeItemCreated instead of
+// ItemCreated. It must never appear in the catalogue but must stay renderable on
+// its list line (even after being bought/removed and soft-deleted).
+
+describe('one-time items', () => {
+  it('createOneTimeItem emits OneTimeItemCreated then ListItemAdded (when a listId is given) and marks the item one-time', async () => {
+    const shop = await apiClient.createShop({ name: 'A', color: '#000' })
+    const tag = await apiClient.createTag('dairy')
+    const list = await apiClient.createList('Weekly')
+
+    let item!: Item
+    const events = await capture(async () => {
+      item = await apiClient.createOneTimeItem(
+        { name: 'Special Cheese', unit: 'kg', defaultQuantity: 1 },
+        [shop.id],
+        [tag.id],
+        'ot-1',
+      )
+      await apiClient.addListItem({ listId: list.id, itemId: item.id, state: 'active', quantity: 1, unit: 'kg' })
+    })
+
+    const types = events.map(e => e.type)
+    expect(types[0]).toBe('OneTimeItemCreated')
+    expect(types[types.length - 1]).toBe('ListItemAdded')
+    expect(types).toEqual(expect.arrayContaining(['ShopAssignedToItem', 'TagAssignedToItem']))
+    expect(types).not.toContain('ItemCreated')
+
+    const created = events[0]!
+    expectEnvelope(created)
+    expect(created.entityId).toBe(item.id)
+    expect(created.payload).toEqual({ name: 'Special Cheese', unit: 'kg', defaultQuantity: 1 })
+
+    expect(item.id).toBe('ot-1')
+    expect(item.name).toBe('Special Cheese')
+
+    // marked one-time: excluded from the catalogue and the marker is persisted
+    expect(await apiClient.getItemsWithDetails()).toEqual([])
+    const snap = JSON.parse(localStorage.getItem('grocery-snapshot')!) as { oneTimeItemIds?: string[] }
+    expect(snap.oneTimeItemIds).toEqual(['ot-1'])
+
+    // retrievable via getListItemsWithItems with its name and resolved shops
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.item.name).toBe('Special Cheese')
+    expect(lis[0]!.item.shops.map(s => s.id)).toEqual([shop.id])
+  })
+
+  it('excludes one-time items from getItemsWithDetails, getItemsForShop and getItemWithDetails', async () => {
+    const shop = await apiClient.createShop({ name: 'A', color: '#000' })
+    const regular = await apiClient.createItem({ name: 'Milk' }, [], [])
+    await apiClient.createOneTimeItem({ name: 'Special Cheese' }, [shop.id], [], 'ot-1')
+
+    const all = await apiClient.getItemsWithDetails()
+    expect(all).toHaveLength(1)
+    expect(all[0]!.id).toBe(regular.id)
+
+    expect(await apiClient.getItemWithDetails('ot-1')).toBeUndefined()
+    expect(await apiClient.getItemWithDetails(regular.id)).toBeDefined()
+
+    expect(await apiClient.getItemsForShop(shop.id)).toEqual([])
+  })
+
+  it('includes one-time items in getListItemsWithItems with shops resolved', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#f00' })
+    const list = await apiClient.createList('Weekly')
+    const ot = await apiClient.createOneTimeItem({ name: 'Special Cheese' }, [shop.id], [], 'ot-1')
+    await apiClient.addListItem({ listId: list.id, itemId: ot.id, state: 'active', quantity: 1 })
+
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.item.id).toBe('ot-1')
+    expect(lis[0]!.item.name).toBe('Special Cheese')
+    expect(lis[0]!.item.shops.map(s => s.id)).toEqual([shop.id])
+  })
+
+  it('marking the one-time list line as bought also soft-deletes the item but keeps the line', async () => {
+    const list = await apiClient.createList('Weekly')
+    await apiClient.createOneTimeItem({ name: 'Special Cheese' }, [], [], 'ot-1')
+    const li = await apiClient.addListItem({ listId: list.id, itemId: 'ot-1', state: 'active' })
+
+    const events = await capture(() => apiClient.setListItemState(li.id, 'bought'))
+
+    expect(events.map(e => e.type)).toEqual(['ListItemStateChanged', 'ItemSoftDeleted'])
+    const soft = events[1]!
+    expectEnvelope(soft)
+    expect(soft.type).toBe('ItemSoftDeleted')
+    expect(soft.entityId).toBe('ot-1')
+    expect(soft.payload.deletedAt).toMatch(iso)
+
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.state).toBe('bought')
+    expect(lis[0]!.item.deletedAt).toBe(soft.payload.deletedAt)
+  })
+
+  it('removing the one-time list line also soft-deletes the item', async () => {
+    const list = await apiClient.createList('Weekly')
+    await apiClient.createOneTimeItem({ name: 'Special Cheese' }, [], [], 'ot-1')
+    const li = await apiClient.addListItem({ listId: list.id, itemId: 'ot-1', state: 'active' })
+
+    const events = await capture(() => apiClient.removeListItem(li.id))
+
+    expect(events.map(e => e.type)).toEqual(['ListItemRemoved', 'ItemSoftDeleted'])
+    expect(events[1]!.entityId).toBe('ot-1')
+  })
+
+  it('snapshot round-trip: the one-time marker survives a reload', async () => {
+    const shop = await apiClient.createShop({ name: 'Lidl', color: '#f00' })
+    const list = await apiClient.createList('Weekly')
+    await apiClient.createOneTimeItem({ name: 'Special Cheese' }, [shop.id], [], 'ot-1')
+    await apiClient.addListItem({ listId: list.id, itemId: 'ot-1', state: 'active' })
+
+    const snap = JSON.parse(localStorage.getItem('grocery-snapshot')!) as { oneTimeItemIds?: string[] }
+    expect(snap.oneTimeItemIds).toEqual(['ot-1'])
+
+    // simulate a page reload: fresh in-memory state, persisted snapshot restored
+    apiClient.reset()
+    localStorage.setItem('grocery-snapshot', JSON.stringify(snap))
+
+    mockFetch([
+      { method: 'GET', url: '/api/events?since=', response: jsonResponse({ events: [], lastSeq: 0 }) },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 0 }) },
+    ])
+
+    await apiClient.loadData()
+
+    expect(await apiClient.getItemsWithDetails()).toEqual([])
+    const lis = await apiClient.getListItemsWithItems(list.id)
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.item.name).toBe('Special Cheese')
+  })
+
+  it('loadData marks items one-time and includes them on their list when replayed from remote events', async () => {
+    const events = [
+      remoteEvent('ShopCreated', 'shop-1', { name: 'Lidl', color: '#f00' }, 1, 1),
+      remoteEvent('OneTimeItemCreated', 'ot-1', { name: 'Special Cheese', unit: 'kg' }, 2, 2),
+      remoteEvent('ShopAssignedToItem', 'ot-1', { shopId: 'shop-1' }, 3, 3),
+      remoteEvent('ListCreated', 'list-1', { name: 'Weekly' }, 4, 4),
+      remoteEvent('ListItemAdded', 'li-1', { listId: 'list-1', itemId: 'ot-1', state: 'active', quantity: 1 }, 5, 5),
+    ]
+    mockFetch([
+      { method: 'GET', url: '/api/events?since=0', response: jsonResponse({ events, lastSeq: 5 }) },
+      { method: 'POST', url: '/api/events', response: jsonResponse({ accepted: 0, duplicates: 0, lastSeq: 5 }) },
+    ])
+
+    await apiClient.loadData()
+
+    expect(await apiClient.getItemsWithDetails()).toEqual([])
+    const lis = await apiClient.getListItemsWithItems('list-1')
+    expect(lis).toHaveLength(1)
+    expect(lis[0]!.item.name).toBe('Special Cheese')
+    expect(lis[0]!.item.shops.map(s => s.id)).toEqual(['shop-1'])
+  })
+})
