@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS items (
     deleted_at      DATETIME
 );
 
+CREATE TABLE IF NOT EXISTS one_time_items (
+    item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS item_shops (
     item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,

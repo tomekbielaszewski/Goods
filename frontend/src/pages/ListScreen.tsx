@@ -22,6 +22,7 @@ const ListScreen: FC = () => {
   const menuRef = useRef<HTMLDivElement>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [renameName, setRenameName] = useState('')
+  const [oneTimeNames, setOneTimeNames] = useState<Set<string>>(new Set())
 
   const sortMode: SortMode = (id ? sortModes[id] : undefined) ?? 'date'
   const isShoppingMode = !!shoppingModeShopId
@@ -78,6 +79,22 @@ const ListScreen: FC = () => {
     apiClient.getList(id).then(l => setList(l ?? null))
     apiClient.getShops().then(setShops)
     apiClient.getListItemsWithItems(id).then(setListItems)
+  }, [id, refresh])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    ;(async () => {
+      const lis = await apiClient.getListItemsWithItems(id)
+      if (cancelled) return
+      const names = new Set<string>()
+      for (const li of lis) {
+        if (li.state !== 'active') continue
+        if (await apiClient.isOneTimeItem(li.itemId)) names.add(li.item.name)
+      }
+      if (!cancelled) setOneTimeNames(names)
+    })()
+    return () => { cancelled = true }
   }, [id, refresh])
 
   const sorted = useSorted(listItems, sortMode)
@@ -341,6 +358,8 @@ const ListScreen: FC = () => {
             onSelect={addItem}
             onCreateNew={name => navigate(`/item/new?name=${encodeURIComponent(name)}&listId=${id}`)}
             excludeIds={new Set(activeItems.map(li => li.itemId))}
+            onAddOneTime={name => navigate(`/item/new?name=${encodeURIComponent(name)}&listId=${id}&oneTime=1`)}
+            excludeOneTimeNames={oneTimeNames}
           />
         </div>
       )}

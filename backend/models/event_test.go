@@ -109,6 +109,7 @@ func TestEventTypeConstantsMatchFrontendTypeStrings(t *testing.T) {
 		"ItemCreated":              EventItemCreated,
 		"ItemUpdated":              EventItemUpdated,
 		"ItemSoftDeleted":          EventItemSoftDeleted,
+		"OneTimeItemCreated":       EventOneTimeItemCreated,
 		"ShopAssignedToItem":       EventShopAssignedToItem,
 		"ShopRemovedFromItem":      EventShopRemovedFromItem,
 		"TagAssignedToItem":        EventTagAssignedToItem,

@@ -9,9 +9,11 @@ interface SearchInputProps {
   onCreateNew: (name: string) => void
   excludeIds?: Set<string>
   dropUp?: boolean
+  onAddOneTime?: (name: string) => void
+  excludeOneTimeNames?: Set<string>
 }
 
-const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', onSelect, onCreateNew, excludeIds, dropUp }) => {
+const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', onSelect, onCreateNew, excludeIds, dropUp, onAddOneTime, excludeOneTimeNames }) => {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ItemWithDetails[]>([])
   const [allResults, setAllResults] = useState<ItemWithDetails[]>([])
@@ -82,12 +84,22 @@ const SearchInput: FC<SearchInputProps> = ({ placeholder = 'Search items…', on
             </button>
           ))}
           {!exactMatch && query.trim() && (
-            <button
-              onMouseDown={() => { onCreateNew(query.trim()); setQuery(''); setOpen(false) }}
-              className="w-full px-2.5 py-2 text-sm text-blue-400 hover:bg-border text-left transition-colors border-t border-border"
-            >
-              + Add "{query.trim()}"
-            </button>
+            <>
+              <button
+                onMouseDown={() => { onCreateNew(query.trim()); setQuery(''); setOpen(false) }}
+                className="w-full px-2.5 py-2 text-sm text-blue-400 hover:bg-border text-left transition-colors border-t border-border"
+              >
+                + Add "{query.trim()}"
+              </button>
+              {onAddOneTime && (!excludeOneTimeNames || !excludeOneTimeNames.has(query.trim())) && (
+                <button
+                  onMouseDown={() => { onAddOneTime(query.trim()); setQuery(''); setOpen(false) }}
+                  className="w-full px-2.5 py-2 text-sm text-purple-400 hover:bg-border text-left transition-colors border-t border-border"
+                >
+                  + One-time: "{query.trim()}"
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
