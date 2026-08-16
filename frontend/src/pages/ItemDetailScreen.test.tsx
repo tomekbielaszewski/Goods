@@ -156,6 +156,22 @@ describe('ItemDetailScreen — tag filtering', () => {
       expect(input).toHaveValue('')
     })
   })
+
+  it('renders the tag suggestions in alphabetical order regardless of insertion order', async () => {
+    // Deliberately inserted in non-alphabetical order
+    store.tags.set('t1', { id: 't1', name: 'drinks' })
+    store.tags.set('t2', { id: 't2', name: 'frozen' })
+    store.tags.set('t3', { id: 't3', name: 'dairy' })
+
+    renderNewItem()
+
+    await waitFor(() => {
+      const suggestionButtons = screen
+        .getAllByRole('button', { name: /^\+ / })
+        .map(b => b.textContent)
+      expect(suggestionButtons).toEqual(['+ dairy', '+ drinks', '+ frozen'])
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
