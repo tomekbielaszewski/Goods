@@ -294,7 +294,9 @@ const ItemDetailScreen: FC = () => {
           </div>
           {(() => {
             const normalized = normalizeTag(newTag)
-            const available = tags.filter(t => !selectedTags.includes(t.id))
+            const available = tags
+              .filter(t => !selectedTags.includes(t.id))
+              .sort((a, b) => a.name.localeCompare(b.name))
             const filtered = normalized
               ? available.filter(t => t.name.includes(normalized))
               : available
