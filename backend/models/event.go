@@ -14,6 +14,7 @@ const (
 	EventTagCreated              = "TagCreated"
 	EventTagDeleted              = "TagDeleted"
 	EventItemCreated             = "ItemCreated"
+	EventOneTimeItemCreated      = "OneTimeItemCreated"
 	EventItemUpdated             = "ItemUpdated"
 	EventItemSoftDeleted         = "ItemSoftDeleted"
 	EventShopAssignedToItem      = "ShopAssignedToItem"
@@ -60,6 +61,7 @@ func IsValidEventType(t string) bool {
 		EventTagCreated,
 		EventTagDeleted,
 		EventItemCreated,
+		EventOneTimeItemCreated,
 		EventItemUpdated,
 		EventItemSoftDeleted,
 		EventShopAssignedToItem,

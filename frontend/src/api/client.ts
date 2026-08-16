@@ -34,6 +34,7 @@ type Snapshot = {
   listItemSkippedShops: ListItemSkippedShop[]
   shoppingSessions: ShoppingSession[]
   sessionItems: SessionItem[]
+  oneTimeItemIds: string[]
   outbox: AppEvent[]
   lastSeq: number
   lamport: number
@@ -59,6 +60,7 @@ class ApiClient {
   private listItemSkippedShops: ListItemSkippedShop[] = []
   private shoppingSessions = new Map<string, ShoppingSession>()
   private sessionItems: SessionItem[] = []
+  private oneTimeItemIds = new Set<string>()
 
   private events: AppEvent[] = []
   private appliedIds = new Set<string>()
@@ -88,6 +90,7 @@ class ApiClient {
     this.listItemSkippedShops = []
     this.shoppingSessions.clear()
     this.sessionItems = []
+    this.oneTimeItemIds.clear()
     this.events = []
     this.appliedIds.clear()
     this.outbox = []
@@ -116,6 +119,7 @@ class ApiClient {
       listItemSkippedShops: this.listItemSkippedShops,
       shoppingSessions: [...this.shoppingSessions.values()],
       sessionItems: this.sessionItems,
+      oneTimeItemIds: [...this.oneTimeItemIds],
       outbox: this.outbox,
       lastSeq: this.lastSeq,
       lamport: this.lamport,
@@ -144,6 +148,7 @@ class ApiClient {
       this.listItemSkippedShops = snap.listItemSkippedShops
       this.shoppingSessions = new Map(snap.shoppingSessions.map(s => [s.id, s]))
       this.sessionItems = snap.sessionItems
+      this.oneTimeItemIds = new Set(snap.oneTimeItemIds)
       this.outbox = snap.outbox
       this.lastSeq = snap.lastSeq
       this.lamport = snap.lamport
@@ -229,6 +234,20 @@ class ApiClient {
         this.tags.delete(event.entityId)
         break
       case 'ItemCreated':
+        this.items.set(event.entityId, {
+          id: event.entityId,
+          name: event.payload.name,
+          unit: event.payload.unit,
+          defaultQuantity: event.payload.defaultQuantity,
+          description: event.payload.description,
+          notes: event.payload.notes,
+          version: 1,
+          createdAt: event.timestamp,
+          updatedAt: event.timestamp,
+        })
+        break
+      case 'OneTimeItemCreated':
+        this.oneTimeItemIds.add(event.entityId)
         this.items.set(event.entityId, {
           id: event.entityId,
           name: event.payload.name,
@@ -371,7 +390,7 @@ class ApiClient {
   }
 
   async getItemsWithDetails(searchTerm?: string): Promise<ItemWithDetails[]> {
-    let items = [...this.items.values()].filter(i => !i.deletedAt)
+    let items = [...this.items.values()].filter(i => !i.deletedAt && !this.oneTimeItemIds.has(i.id))
     if (searchTerm) {
       const needle = normalize(searchTerm)
       items = items.filter(i => normalize(i.name).includes(needle))
@@ -380,6 +399,7 @@ class ApiClient {
   }
 
   async getItemWithDetails(id: string): Promise<ItemWithDetails | undefined> {
+    if (this.oneTimeItemIds.has(id)) return undefined
     const item = this.items.get(id)
     if (!item) return undefined
     const enriched = this.enrichItems([item])
@@ -388,7 +408,7 @@ class ApiClient {
 
   async getItemsForShop(shopId: string): Promise<ItemWithDetails[]> {
     const itemIds = this.itemShops.filter(is => is.shopId === shopId).map(is => is.itemId)
-    const items = itemIds.map(id => this.items.get(id)).filter((i): i is Item => i != null && !i.deletedAt)
+    const items = itemIds.map(id => this.items.get(id)).filter((i): i is Item => i != null && !i.deletedAt && !this.oneTimeItemIds.has(i.id))
     return this.enrichItems(items)
   }
 
@@ -624,6 +644,26 @@ class ApiClient {
     return this.items.get(id)!
   }
 
+  async createOneTimeItem(
+    input: ItemCreateInput,
+    shopIds: string[],
+    tagIds: string[],
+    id: string = crypto.randomUUID(),
+  ): Promise<Item> {
+    this.commit({ entityId: id, type: 'OneTimeItemCreated', payload: { ...input } })
+    for (const shopId of shopIds) {
+      this.commit({ entityId: id, type: 'ShopAssignedToItem', payload: { shopId } })
+    }
+    for (const tagId of tagIds) {
+      this.commit({ entityId: id, type: 'TagAssignedToItem', payload: { tagId } })
+    }
+    return this.items.get(id)!
+  }
+
+  async isOneTimeItem(id: string): Promise<boolean> {
+    return this.oneTimeItemIds.has(id)
+  }
+
   async updateItem(id: string, patch: ItemPatch): Promise<Item> {
     this.commit({ entityId: id, type: 'ItemUpdated', payload: { ...patch } })
     return this.items.get(id)!
@@ -730,7 +770,11 @@ class ApiClient {
   }
 
   async setListItemState(id: string, state: 'active' | 'bought'): Promise<ListItem> {
+    const li = this.listItems.get(id)
     this.commit({ entityId: id, type: 'ListItemStateChanged', payload: { state } })
+    if (state === 'bought' && li && this.oneTimeItemIds.has(li.itemId)) {
+      await this.softDeleteItem(li.itemId)
+    }
     return this.listItems.get(id)!
   }
 
@@ -740,7 +784,11 @@ class ApiClient {
   }
 
   async removeListItem(id: string): Promise<void> {
+    const li = this.listItems.get(id)
     this.commit({ entityId: id, type: 'ListItemRemoved', payload: {} })
+    if (li && this.oneTimeItemIds.has(li.itemId)) {
+      await this.softDeleteItem(li.itemId)
+    }
   }
 
   async skipShopForListItem(listItemId: string, shopId: string): Promise<void> {

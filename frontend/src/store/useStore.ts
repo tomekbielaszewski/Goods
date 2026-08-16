@@ -34,6 +34,7 @@ interface AppStore {
   upsertItem: (item: Item, shopIds: string[], tagIds: string[]) => Promise<void>
   addItemToShop: (itemId: string, shopId: string) => Promise<void>
   removeItemFromShop: (itemId: string, shopId: string) => Promise<void>
+  createOneTimeItem: (item: Item, shopIds: string[], tagIds: string[]) => Promise<void>
   upsertList: (list: List) => Promise<void>
   deleteList: (id: string) => Promise<void>
   cloneList: (id: string) => Promise<void>
@@ -143,6 +144,21 @@ export const useStore = create<AppStore>((set) => ({
 
   removeItemFromShop: async (itemId, shopId) => {
     await apiClient.removeShopFromItem(itemId, shopId)
+  },
+
+  createOneTimeItem: async (item, shopIds, tagIds) => {
+    await apiClient.createOneTimeItem(
+      {
+        name: item.name,
+        unit: item.unit,
+        defaultQuantity: item.defaultQuantity,
+        description: item.description,
+        notes: item.notes,
+      },
+      shopIds,
+      tagIds,
+      item.id,
+    )
   },
 
   upsertList: async (list) => {

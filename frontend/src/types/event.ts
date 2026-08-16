@@ -15,6 +15,7 @@ export type AppEvent =
   | (EventBase & { type: 'TagCreated'; payload: { name: string } })
   | (EventBase & { type: 'TagDeleted'; payload: {} })
   | (EventBase & { type: 'ItemCreated'; payload: { name: string; unit?: string; defaultQuantity?: number; description?: string; notes?: string } })
+  | (EventBase & { type: 'OneTimeItemCreated'; payload: { name: string; unit?: string; defaultQuantity?: number; description?: string; notes?: string } })
   | (EventBase & { type: 'ItemUpdated'; payload: { name?: string; unit?: string; defaultQuantity?: number; description?: string; notes?: string } })
   | (EventBase & { type: 'ItemSoftDeleted'; payload: { deletedAt: string } })
   | (EventBase & { type: 'ShopAssignedToItem'; payload: { shopId: string } })

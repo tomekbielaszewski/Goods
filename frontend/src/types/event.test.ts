@@ -28,6 +28,7 @@ function payloadValue(e: AppEvent): string {
     case 'ItemCreated': return e.payload.name
     case 'ItemUpdated': return e.payload.name ?? ''
     case 'ItemSoftDeleted': return e.payload.deletedAt
+    case 'OneTimeItemCreated': return e.payload.name
     case 'ShopAssignedToItem': return e.payload.shopId
     case 'ShopRemovedFromItem': return e.payload.shopId
     case 'TagAssignedToItem': return e.payload.tagId
@@ -97,6 +98,7 @@ describe('AppEvent union', () => {
       make('ItemCreated', { name: 'Milk' }),
       make('ItemUpdated', { unit: 'kg' }),
       make('ItemSoftDeleted', { deletedAt: '2024-01-01T00:00:00.000Z' }),
+      make('OneTimeItemCreated', { name: 'Special Cheese' }),
       make('ShopAssignedToItem', { shopId: 's1' }),
       make('ShopRemovedFromItem', { shopId: 's1' }),
       make('TagAssignedToItem', { tagId: 't1' }),
@@ -147,6 +149,18 @@ describe('AppEvent union', () => {
     const state = make('ListItemStateChanged', { state: 'active' })
     if (state.type === 'ListItemStateChanged') {
       expect(state.payload.state).toBe('active')
+    }
+  })
+
+  it('narrows OneTimeItemCreated to its item payload and entityId', () => {
+    const created = make('OneTimeItemCreated', { name: 'Special Cheese', unit: 'kg', defaultQuantity: 1 }, 'ot-1')
+    expect(created.entityId).toBe('ot-1')
+    if (created.type === 'OneTimeItemCreated') {
+      expect(created.payload.name).toBe('Special Cheese')
+      expect(created.payload.unit).toBe('kg')
+      expect(created.payload.defaultQuantity).toBe(1)
+    } else {
+      throw new Error('expected OneTimeItemCreated narrowing')
     }
   })
 })

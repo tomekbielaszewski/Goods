@@ -110,6 +110,27 @@ func projectEvent(tx *sql.Tx, e models.Event) error {
 		)
 		return err
 
+	case models.EventOneTimeItemCreated:
+		var p struct {
+			Name            string   `json:"name"`
+			Unit            *string  `json:"unit"`
+			DefaultQuantity *float64 `json:"defaultQuantity"`
+			Description     *string  `json:"description"`
+			Notes           *string  `json:"notes"`
+		}
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO items(id, name, unit, default_quantity, description, notes, version, created_at, updated_at)
+			 VALUES(?,?,?,?,?,?,1,?,?)`,
+			e.EntityID, p.Name, p.Unit, p.DefaultQuantity, p.Description, p.Notes, e.Timestamp, e.Timestamp,
+		); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO one_time_items(item_id) VALUES(?)`, e.EntityID)
+		return err
+
 	case models.EventItemUpdated:
 		var p struct {
 			Name            *string  `json:"name"`

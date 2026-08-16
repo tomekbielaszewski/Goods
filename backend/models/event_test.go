@@ -19,6 +19,7 @@ var frontendEventTypes = []string{
 	"ItemCreated",
 	"ItemUpdated",
 	"ItemSoftDeleted",
+	"OneTimeItemCreated",
 	"ShopAssignedToItem",
 	"ShopRemovedFromItem",
 	"TagAssignedToItem",
@@ -108,6 +109,7 @@ func TestEventTypeConstantsMatchFrontendTypeStrings(t *testing.T) {
 		"ItemCreated":              EventItemCreated,
 		"ItemUpdated":              EventItemUpdated,
 		"ItemSoftDeleted":          EventItemSoftDeleted,
+		"OneTimeItemCreated":       EventOneTimeItemCreated,
 		"ShopAssignedToItem":       EventShopAssignedToItem,
 		"ShopRemovedFromItem":      EventShopRemovedFromItem,
 		"TagAssignedToItem":        EventTagAssignedToItem,
@@ -141,6 +143,12 @@ func TestIsValidEventType(t *testing.T) {
 	assert.False(t, IsValidEventType(""))
 	assert.False(t, IsValidEventType("shopcreated"))
 	assert.False(t, IsValidEventType("NoSuchEvent"))
+}
+
+func TestOneTimeItemCreatedIsValidEventType(t *testing.T) {
+	// The "OneTimeItemCreated" type must be accepted by IsValidEventType so the
+	// backend can ingest one-time-item creation events end to end.
+	assert.True(t, IsValidEventType("OneTimeItemCreated"))
 }
 
 func TestEventValidateOK(t *testing.T) {

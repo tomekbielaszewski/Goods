@@ -26,6 +26,7 @@ const ItemDetailScreen: FC = () => {
   const [notes, setNotes]           = useState('')
   const [selectedShops, setSelectedShops] = useState<string[]>([])
   const [selectedTags, setSelectedTags]   = useState<string[]>([])
+  const [oneTime, setOneTime]             = useState(isNew && searchParams.get('oneTime') === '1')
   const [newTag, setNewTag]         = useState('')
   const [shops, setShops]           = useState<Shop[]>([])
   const [tags, setTags]             = useState<Tag[]>([])
@@ -80,17 +81,16 @@ const ItemDetailScreen: FC = () => {
 
     let itemId: string
     if (isNew) {
-      const created = await apiClient.createItem(
-        {
-          name: name.trim(),
-          unit: newUnit,
-          defaultQuantity: parsedQty,
-          description: description || undefined,
-          notes: notes || undefined,
-        },
-        selectedShops,
-        selectedTags,
-      )
+      const input = {
+        name: name.trim(),
+        unit: newUnit,
+        defaultQuantity: parsedQty,
+        description: description || undefined,
+        notes: notes || undefined,
+      }
+      const created = oneTime
+        ? await apiClient.createOneTimeItem(input, selectedShops, selectedTags)
+        : await apiClient.createItem(input, selectedShops, selectedTags)
       itemId = created.id
     } else {
       const patch: ItemPatch = {}
@@ -230,6 +230,22 @@ const ItemDetailScreen: FC = () => {
           {qtyNaN && <p className="text-xs text-red-400 mt-1">Not a valid number</p>}
           {qtyTooLow && <p className="text-xs text-red-400 mt-1">Must be greater than 0</p>}
         </div>
+
+        {/* One-time item (new item form only) */}
+        {isNew && (
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="one-time-toggle"
+              checked={oneTime}
+              onChange={e => setOneTime(e.target.checked)}
+              className="w-4 h-4 accent-blue-600"
+            />
+            <label htmlFor="one-time-toggle" className="text-xs text-gray-500">
+              One-time item
+            </label>
+          </div>
+        )}
 
         {/* Shops */}
         <div>

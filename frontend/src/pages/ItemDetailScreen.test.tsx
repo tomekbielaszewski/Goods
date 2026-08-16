@@ -5,6 +5,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import ItemDetailScreen from './ItemDetailScreen'
 import { apiClient } from '../api/client'
 import type { Shop, Item, Tag, ListItem, ShoppingSession, SessionItem } from '../types'
+import type { AppEvent } from '../types/event'
 
 const store = apiClient as unknown as {
   shops: Map<string, Shop>
@@ -397,5 +398,85 @@ describe('ItemDetailScreen — purchase history table', () => {
     await waitFor(() => {
       expect(screen.getByRole('columnheader', { name: 'Shop' })).toBeInTheDocument()
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// one-time item toggle (new item form only)
+// ---------------------------------------------------------------------------
+
+describe('ItemDetailScreen — one-time item toggle', () => {
+  const now = new Date().toISOString()
+
+  const renderOneTimeNewItem = (search = '') =>
+    render(
+      <MemoryRouter initialEntries={[`/item/new?oneTime=1${search}`]}>
+        <Routes>
+          <Route path="/item/:id" element={<ItemDetailScreen />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+  it('pre-checks the toggle when the URL has oneTime=1 and saves via OneTimeItemCreated with the selected shop', async () => {
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+
+    const user = userEvent.setup()
+    renderOneTimeNewItem()
+
+    const toggle = await screen.findByRole('checkbox', { name: /one-time item/i })
+    expect(toggle).toBeChecked()
+
+    await user.type(await screen.findByPlaceholderText('e.g. Whole milk'), 'Special Cheese')
+    await user.click(await screen.findByRole('button', { name: /lidl/i }))
+
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    await user.click(screen.getByRole('button', { name: /add item/i }))
+    unsubscribe()
+
+    const types = events.map(e => e.type)
+    expect(types[0]).toBe('OneTimeItemCreated')
+    expect(types).toContain('ShopAssignedToItem')
+    expect(types).not.toContain('ItemCreated')
+  })
+
+  it('adds the one-time item to the list via addListItem when listId is present', async () => {
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+
+    const user = userEvent.setup()
+    renderOneTimeNewItem('&listId=list-1')
+
+    await user.type(await screen.findByPlaceholderText('e.g. Whole milk'), 'Special Cheese')
+
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    await user.click(screen.getByRole('button', { name: /add item/i }))
+    unsubscribe()
+
+    const types = events.map(e => e.type)
+    expect(types[0]).toBe('OneTimeItemCreated')
+    const liEvent = events.find(e => e.type === 'ListItemAdded')
+    expect(liEvent).toBeDefined()
+    expect(liEvent!.payload.listId).toBe('list-1')
+  })
+
+  it('uses the normal createItem path when the toggle is off (default)', async () => {
+    store.shops.set('s1', { id: 's1', name: 'Lidl', color: '#ff0000', version: 1, updatedAt: now })
+
+    const user = userEvent.setup()
+    renderNewItem()
+
+    const toggle = await screen.findByRole('checkbox', { name: /one-time item/i })
+    expect(toggle).not.toBeChecked()
+
+    await user.type(await screen.findByPlaceholderText('e.g. Whole milk'), 'Milk')
+
+    const events: AppEvent[] = []
+    const unsubscribe = apiClient.subscribe(e => events.push(e))
+    await user.click(screen.getByRole('button', { name: /add item/i }))
+    unsubscribe()
+
+    expect(events.map(e => e.type)[0]).toBe('ItemCreated')
+    expect(events.some(e => e.type === 'OneTimeItemCreated')).toBe(false)
   })
 })
